@@ -1,13 +1,11 @@
 import KuyuCore
 import KuyuPhysics
 
-public struct ParallelScenarioRunner<Runner: PlantScenarioRunner> {
+public struct ScenarioRunner<Runner: PlantScenarioRunner> {
     public let runner: Runner
-    public let maxConcurrency: Int
 
-    public init(runner: Runner, maxConcurrency: Int = 4) {
+    public init(runner: Runner) {
         self.runner = runner
-        self.maxConcurrency = maxConcurrency
     }
 
     @MainActor

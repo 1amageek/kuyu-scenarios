@@ -17,14 +17,14 @@ public struct ControlQualityMetrics: Sendable, Codable, Equatable {
     /// Mean error in the last 20% of the run (steady-state accuracy).
     public let steadyStateError: Double
 
-    /// Time to first enter and remain within 2% of the target (seconds).
+    /// Time to first enter and remain within the settling band (seconds).
     public let settlingTime: Double?
 
     /// Time from 10% to 90% of a step response (seconds).
     public let riseTime: Double?
 
-    /// Peak overshoot relative to the target value (percentage).
-    public let percentOvershoot: Double?
+    /// Peak overshoot from the target (degrees).
+    public let maxOvershootDegrees: Double?
 
     /// Integral of squared actuator output: ∫|u|²dt (energy consumption).
     public let controlEffort: Double
@@ -38,7 +38,7 @@ public struct ControlQualityMetrics: Sendable, Codable, Equatable {
         steadyStateError: Double,
         settlingTime: Double?,
         riseTime: Double?,
-        percentOvershoot: Double?,
+        maxOvershootDegrees: Double?,
         controlEffort: Double,
         smoothness: Double
     ) {
@@ -47,7 +47,7 @@ public struct ControlQualityMetrics: Sendable, Codable, Equatable {
         self.steadyStateError = steadyStateError
         self.settlingTime = settlingTime
         self.riseTime = riseTime
-        self.percentOvershoot = percentOvershoot
+        self.maxOvershootDegrees = maxOvershootDegrees
         self.controlEffort = controlEffort
         self.smoothness = smoothness
     }

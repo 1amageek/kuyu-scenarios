@@ -16,7 +16,7 @@ kuyu-scenarios provides the evaluation infrastructure for testing controllers. I
 
 - **`PlantScenarioRunner`** — Executes a single scenario with a given controller and produces logs.
 - **`PlantScenarioSuiteRunner`** — Runs a full suite of scenarios and aggregates results.
-- **`ParallelScenarioRunner`** — Concurrent execution of independent scenarios.
+- **`ScenarioRunner`** — Sequential execution of independent scenarios.
 - **`DescendingIntentProgram`** — Time-varying descending channel commands (keyframe interpolation).
 
 ### Evaluation Metrics

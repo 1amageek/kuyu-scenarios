@@ -38,9 +38,9 @@ public struct ExtendedScenarioEvaluator {
         var count = 0
 
         for step in events {
-            let tiltDeg = step.safetyTrace.tiltRadians * 180.0 / Double.pi
-            sumSquaredError += tiltDeg * tiltDeg
-            maxError = max(maxError, tiltDeg)
+            let absTiltDeg = abs(step.safetyTrace.tiltRadians * 180.0 / Double.pi)
+            sumSquaredError += absTiltDeg * absTiltDeg
+            maxError = max(maxError, absTiltDeg)
             count += 1
         }
 
@@ -55,7 +55,7 @@ public struct ExtendedScenarioEvaluator {
         if tail.isEmpty {
             steadyStateError = rms
         } else {
-            let tailSum = tail.reduce(0.0) { $0 + $1.safetyTrace.tiltRadians * 180.0 / Double.pi }
+            let tailSum = tail.reduce(0.0) { $0 + abs($1.safetyTrace.tiltRadians * 180.0 / Double.pi) }
             steadyStateError = tailSum / Double(tail.count)
         }
 
@@ -79,14 +79,14 @@ public struct ExtendedScenarioEvaluator {
             prevValues = currentValues
         }
 
-        // Settling time: first time tilt stays within 2% of 0° for 0.5s
+        // Settling time: first time tilt stays within ±2° of 0° for 0.5s
         let settlingBand = 2.0 // degrees
         let settlingWindow = 0.5 // seconds
         var settlingTime: Double? = nil
         var windowStart: Double? = nil
         for step in events {
-            let tiltDeg = step.safetyTrace.tiltRadians * 180.0 / Double.pi
-            if tiltDeg <= settlingBand {
+            let absTiltDeg = abs(step.safetyTrace.tiltRadians * 180.0 / Double.pi)
+            if absTiltDeg <= settlingBand {
                 windowStart = windowStart ?? step.time.time
                 if let start = windowStart, step.time.time - start >= settlingWindow {
                     settlingTime = start
@@ -103,7 +103,7 @@ public struct ExtendedScenarioEvaluator {
             steadyStateError: steadyStateError,
             settlingTime: settlingTime,
             riseTime: nil,
-            percentOvershoot: maxError > 0 ? maxError : nil,
+            maxOvershootDegrees: maxError > 0 ? maxError : nil,
             controlEffort: controlEffort,
             smoothness: smoothness
         )
