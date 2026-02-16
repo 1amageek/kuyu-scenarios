@@ -8,6 +8,17 @@ import KuyuPhysics
 /// beyond safety envelope compliance.
 public struct ControlQualityMetrics: Sendable, Codable, Equatable {
 
+    private enum CodingKeys: String, CodingKey {
+        case rmsTrackingError
+        case maxTrackingError
+        case steadyStateError
+        case settlingTime
+        case riseTime
+        case maxOvershootDegrees = "percentOvershoot"
+        case controlEffort
+        case smoothness
+    }
+
     /// Root-mean-square tracking error over the entire run.
     public let rmsTrackingError: Double
 
