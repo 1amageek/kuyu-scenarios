@@ -1,6 +1,11 @@
 import KuyuCore
 import KuyuPhysics
 
+public enum KuyAtt1BaselineMode: String, Sendable, Codable {
+    case sensor
+    case teacher
+}
+
 public struct KuyAtt1Runner {
     public var parameters: ReferenceQuadrotorParameters
     public var mixer: ReferenceQuadrotorMixer
@@ -9,6 +14,7 @@ public struct KuyAtt1Runner {
     public var noise: IMU6NoiseConfig
     public var environment: WorldEnvironment
     public var gains: ImuRateDampingCutGains
+    public var baselineMode: KuyAtt1BaselineMode
 
     public init(
         parameters: ReferenceQuadrotorParameters = .baseline,
@@ -17,7 +23,8 @@ public struct KuyAtt1Runner {
         determinism: DeterminismConfig,
         noise: IMU6NoiseConfig = .zero,
         environment: WorldEnvironment = .standard,
-        gains: ImuRateDampingCutGains
+        gains: ImuRateDampingCutGains,
+        baselineMode: KuyAtt1BaselineMode = .sensor
     ) {
         self.parameters = parameters
         self.mixer = mixer ?? ReferenceQuadrotorMixer(armLength: parameters.armLength, yawCoefficient: parameters.yawCoefficient)
@@ -26,9 +33,10 @@ public struct KuyAtt1Runner {
         self.noise = noise
         self.environment = environment
         self.gains = gains
+        self.baselineMode = baselineMode
     }
 
-    public static func baseline(
+    public static func teacherBaseline(
         gains: ImuRateDampingCutGains,
         noise: IMU6NoiseConfig = .zero,
         cutPeriodSteps: UInt64 = 2
@@ -38,8 +46,17 @@ public struct KuyAtt1Runner {
             schedule: schedule,
             determinism: .tier1Baseline,
             noise: noise,
-            gains: gains
+            gains: gains,
+            baselineMode: .teacher
         )
+    }
+
+    public static func baseline(
+        gains: ImuRateDampingCutGains,
+        noise: IMU6NoiseConfig = .zero,
+        cutPeriodSteps: UInt64 = 2
+    ) throws -> KuyAtt1Runner {
+        try teacherBaseline(gains: gains, noise: noise, cutPeriodSteps: cutPeriodSteps)
     }
 
     @MainActor
@@ -60,23 +77,8 @@ public struct KuyAtt1Runner {
         let validation = KuyAtt1Validation(runner: runner)
 
         return try await validation.run(
-            cutFactory: { _ in
-                let hoverThrust = parameters.mass * parameters.gravity / 4.0 * gains.hoverThrustScale
-                return try ImuRateDampingDriveCut(
-                    hoverThrust: hoverThrust,
-                    kp: gains.kp,
-                    kd: gains.kd,
-                    yawDamping: gains.yawDamping,
-                    armLength: parameters.armLength,
-                    yawCoefficient: parameters.yawCoefficient,
-                    maxThrust: parameters.maxThrust
-                )
-            },
-            motorNerveFactory: { _ in
-                let maxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
-                let config = FixedQuadMotorNerve.Config(mixer: mixer, motorMaxThrusts: maxThrusts)
-                return FixedQuadMotorNerve(config: config)
-            },
+            cutFactory: { definition in try makeDriveCut(definition: definition) },
+            motorNerveFactory: { _ in try makeMotorNerve() },
             referenceLogs: referenceLogs,
             control: control
         )
@@ -99,23 +101,8 @@ public struct KuyAtt1Runner {
 
         let validation = KuyAtt1Validation(runner: runner)
         let output = try await validation.runWithLogs(
-            cutFactory: { _ in
-                let hoverThrust = parameters.mass * parameters.gravity / 4.0 * gains.hoverThrustScale
-                return try ImuRateDampingDriveCut(
-                    hoverThrust: hoverThrust,
-                    kp: gains.kp,
-                    kd: gains.kd,
-                    yawDamping: gains.yawDamping,
-                    armLength: parameters.armLength,
-                    yawCoefficient: parameters.yawCoefficient,
-                    maxThrust: parameters.maxThrust
-                )
-            },
-            motorNerveFactory: { _ in
-                let maxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
-                let config = FixedQuadMotorNerve.Config(mixer: mixer, motorMaxThrusts: maxThrusts)
-                return FixedQuadMotorNerve(config: config)
-            },
+            cutFactory: { definition in try makeDriveCut(definition: definition) },
+            motorNerveFactory: { _ in try makeMotorNerve() },
             referenceLogs: referenceLogs,
             control: control
         )
@@ -130,5 +117,55 @@ public struct KuyAtt1Runner {
         )
 
         return KuyAtt1RunOutput(result: output.result, summary: summary, logs: output.logs)
+    }
+
+    private func makeDriveCut(definition: ReferenceQuadrotorScenarioDefinition) throws -> ImuRateDampingDriveCut {
+        let hoverThrust = parameters.mass * parameters.gravity / 4.0 * gains.hoverThrustScale
+        let initialAttitude: EulerAngles
+        let tiltCorrectionTimeConstant: Double?
+
+        switch baselineMode {
+        case .teacher:
+            initialAttitude = definition.initialAttitude
+            tiltCorrectionTimeConstant = nil
+        case .sensor:
+            initialAttitude = EulerAngles(roll: 0, pitch: 0, yaw: 0)
+            tiltCorrectionTimeConstant = 0.4
+        }
+
+        return try ImuRateDampingDriveCut(
+            hoverThrust: hoverThrust,
+            kp: gains.kp,
+            kd: gains.kd,
+            yawDamping: gains.yawDamping,
+            armLength: parameters.armLength,
+            yawCoefficient: parameters.yawCoefficient,
+            maxThrust: parameters.maxThrust,
+            initialRoll: initialAttitude.roll,
+            initialPitch: initialAttitude.pitch,
+            tiltCorrectionTimeConstant: tiltCorrectionTimeConstant
+        )
+    }
+
+    private func makeMotorNerve() throws -> FixedQuadMotorNerve {
+        let maxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
+        let config: FixedQuadMotorNerve.Config
+
+        switch baselineMode {
+        case .teacher:
+            config = FixedQuadMotorNerve.Config(
+                mixer: mixer,
+                motorMaxThrusts: maxThrusts,
+                rateLimitPerSecond: 100.0,
+                smoothingTimeConstant: nil
+            )
+        case .sensor:
+            config = FixedQuadMotorNerve.Config(
+                mixer: mixer,
+                motorMaxThrusts: maxThrusts
+            )
+        }
+
+        return FixedQuadMotorNerve(config: config)
     }
 }

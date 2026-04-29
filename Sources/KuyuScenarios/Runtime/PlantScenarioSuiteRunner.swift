@@ -45,11 +45,16 @@ public struct PlantScenarioSuiteRunner<Runner: PlantScenarioRunner, Evaluator: S
             let evaluation = evaluator.evaluate(definition: definition, log: log)
             evaluations.append(evaluation)
 
-            let key = ScenarioKey(scenarioId: log.scenarioId, seed: log.seed)
-            if let reference = referenceLogs[key] {
-                let replay = try replayChecker.check(reference: reference, candidate: log)
-                replayChecks.append(replay)
-            }
+            let replay = try await validateScenarioReplay(
+                runner: runner,
+                replayChecker: replayChecker,
+                definition: definition,
+                primaryLog: log,
+                cutFactory: cutFactory,
+                motorNerveFactory: motorNerveFactory,
+                referenceLogs: referenceLogs
+            )
+            replayChecks.append(replay)
         }
 
         let evaluationPass = evaluations.allSatisfy { $0.passed }

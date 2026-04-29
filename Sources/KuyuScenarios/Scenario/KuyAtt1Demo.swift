@@ -13,7 +13,7 @@ public struct KuyAtt1Demo {
         logDirectory: URL? = nil
     ) async throws -> ValidationSummary {
         let gains = try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2)
-        let runner = try KuyAtt1Runner.baseline(gains: gains)
+        let runner = try KuyAtt1Runner.teacherBaseline(gains: gains)
         let output = try await runner.runWithLogs()
         let runtimeConfig = configuration.map { KuyuConfigLoader().load(reader: $0) }
         let activeLogger = logger ?? runtimeConfig.map { KuyuLoggerFactory().make(label: $0.logLabel, level: $0.logLevel) }
@@ -38,7 +38,7 @@ public struct KuyAtt1Demo {
 
     public func runBaselineAndWriteLogs(to directory: URL) async throws -> ScenarioLogBundle {
         let gains = try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2)
-        let runner = try KuyAtt1Runner.baseline(gains: gains)
+        let runner = try KuyAtt1Runner.teacherBaseline(gains: gains)
         let output = try await runner.runWithLogs()
         let writer = KuyAtt1LogWriter()
         return try writer.write(output: output, to: directory)

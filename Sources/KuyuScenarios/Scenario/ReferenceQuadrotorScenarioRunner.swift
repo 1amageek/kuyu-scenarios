@@ -167,7 +167,8 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
             swapEvents: definition.swapEvents,
             hfEvents: definition.hfEvents,
             baseNoise: scaledNoise,
-            seed: definition.config.seed.rawValue
+            seed: definition.config.seed.rawValue,
+            stateChannelStore: definition.kind == .liftHover ? store : nil
         )
 
         let config = SimulationConfig(

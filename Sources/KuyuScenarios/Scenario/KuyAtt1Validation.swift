@@ -65,10 +65,16 @@ public struct KuyAtt1Validation<Cut: CutInterface, Nerve: MotorNerveEndpoint> {
             let evaluation = ReferenceQuadrotorScenarioEvaluator().evaluate(definition: definition, log: log)
             evaluations.append(evaluation)
 
-            if let reference = referenceLogs[key] {
-                let replay = try ReplayChecker().check(reference: reference, candidate: log)
-                replayChecks.append(replay)
-            }
+            let replay = try await validateScenarioReplay(
+                runner: runner,
+                replayChecker: suiteRunner.replayChecker,
+                definition: definition,
+                primaryLog: log,
+                cutFactory: cutFactory,
+                motorNerveFactory: motorNerveFactory,
+                referenceLogs: referenceLogs
+            )
+            replayChecks.append(replay)
         }
 
         let evaluationPass = evaluations.allSatisfy { $0.passed }

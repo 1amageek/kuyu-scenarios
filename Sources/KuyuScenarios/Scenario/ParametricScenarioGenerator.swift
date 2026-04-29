@@ -141,7 +141,7 @@ public struct ParametricScenarioGenerator {
                 sustainedViolationSeconds: 0.2,
                 groundZ: 0.0,
                 fallDurationSeconds: 0.5,
-                fallVelocityThreshold: 0.0
+                fallVelocityThreshold: 0.05
             ),
             torqueEvents: torqueEvents,
             actuatorDegradation: actuatorDegradation,

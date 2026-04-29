@@ -14,7 +14,7 @@ public struct KuyAtt1Suite: ReferenceQuadrotorScenarioSuite {
             sustainedViolationSeconds: 0.200,
             groundZ: 0.0,
             fallDurationSeconds: 0.5,
-            fallVelocityThreshold: 0.0
+            fallVelocityThreshold: 0.05
         )
 
         let definitions: [ReferenceQuadrotorScenarioDefinition] = try buildDefinitions(

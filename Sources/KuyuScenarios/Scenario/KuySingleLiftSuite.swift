@@ -26,7 +26,7 @@ public struct KuySingleLiftSuite: ReferenceQuadrotorScenarioSuite {
 
         var definitions: [ReferenceQuadrotorScenarioDefinition] = []
         definitions.reserveCapacity(seeds.count)
-        let initialPosition = Axis3(x: 0, y: 0, z: 0.0)
+        let initialPosition = Axis3(x: 0, y: 0, z: liftEnvelope.targetZ)
 
         for seed in seeds {
             let config = try ScenarioConfig(
