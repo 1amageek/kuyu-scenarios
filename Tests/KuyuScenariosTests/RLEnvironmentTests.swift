@@ -146,6 +146,42 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
     }
 }
 
+@Test func referenceQuadrotorEnvironmentResetAndStepUseSameLiftObservationSchema() async throws {
+    let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
+    let definition = try makeShortLiftScenario(
+        kind: .liftHover,
+        id: "KUY-RL-TEST/LIFT-SCHEMA",
+        seed: 47,
+        initialZ: 2.25,
+        targetZ: 2.0
+    )
+    var environment = ReferenceQuadrotorRLEnvironment(
+        parameters: try parameters(for: definition.kind),
+        schedule: schedule,
+        determinism: .tier1Baseline,
+        motorNerveRateLimitPerSecond: 100.0,
+        motorNerveSmoothingTimeConstant: nil
+    )
+
+    let resetObservation = try environment.reset(seed: definition.config.seed, scenario: definition)
+    let action = try EnvironmentAction.driveIntents([
+        DriveIntent(index: DriveIndex(0), activation: 0.5),
+        DriveIntent(index: DriveIndex(1), activation: 0.5),
+        DriveIntent(index: DriveIndex(2), activation: 0.5),
+        DriveIntent(index: DriveIndex(3), activation: 0.5),
+    ], corrections: [])
+    let step = try environment.step(action: action)
+    let stepObservation = step.observation
+
+    #expect(resetObservation.sensorSamples.count == 8)
+    #expect(stepObservation.sensorSamples.count == 8)
+    #expect(resetObservation.sensorSamples.map(\.channelIndex) == stepObservation.sensorSamples.map(\.channelIndex))
+    #expect(resetObservation.sensorSamples.first { $0.channelIndex == 6 }?.value == resetObservation.plantState.root.position.z)
+    #expect(resetObservation.sensorSamples.first { $0.channelIndex == 7 }?.value == resetObservation.plantState.root.velocity.z)
+    #expect(stepObservation.sensorSamples.first { $0.channelIndex == 6 }?.value == step.log.plantState.root.position.z)
+    #expect(stepObservation.sensorSamples.first { $0.channelIndex == 7 }?.value == step.log.plantState.root.velocity.z)
+}
+
 @Test func referenceQuadrotorEnvironmentCanBeConstructedFromBundledDescriptors() throws {
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
     let quad = try loadBundledDescriptor("QuadRef/quadref.model.json")

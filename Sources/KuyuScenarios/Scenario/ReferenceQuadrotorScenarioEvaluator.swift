@@ -1,7 +1,7 @@
 import KuyuCore
 import KuyuPhysics
 
-public struct ReferenceQuadrotorScenarioEvaluator: ScenarioEvaluating {
+public struct ReferenceQuadrotorScenarioEvaluator: ScenarioEvaluating, Sendable {
     public init() {}
 
     public func evaluate(
