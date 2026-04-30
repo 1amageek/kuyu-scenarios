@@ -67,6 +67,7 @@ public struct KuyLiftBaselineEnvironmentPolicy: ReferenceQuadrotorEnvironmentPol
     public let maxThrust: Double
     public let kp: Double
     public let kd: Double
+    public let driveCount: Int
 
     public init(
         definition: ReferenceQuadrotorScenarioDefinition,
@@ -82,9 +83,8 @@ public struct KuyLiftBaselineEnvironmentPolicy: ReferenceQuadrotorEnvironmentPol
 
         self.policyID = mode == .teacher ? "teacherBaseline" : "sensorBaseline"
         self.targetZ = envelope.targetZ
-        self.hoverThrust = definition.kind == .singleLiftHover
-            ? parameters.mass * parameters.gravity * hoverThrustScale
-            : parameters.mass * parameters.gravity / 4.0 * hoverThrustScale
+        self.driveCount = definition.kind == .singleLiftHover ? 1 : 4
+        self.hoverThrust = parameters.mass * parameters.gravity / Double(driveCount) * hoverThrustScale
         self.maxThrust = parameters.maxThrust
         self.kp = kp
         self.kd = kd
@@ -96,8 +96,10 @@ public struct KuyLiftBaselineEnvironmentPolicy: ReferenceQuadrotorEnvironmentPol
         let error = targetZ - z
         let desiredThrust = hoverThrust + kp * error - kd * vz
         let throttle = clamp(desiredThrust / max(maxThrust, 1e-6), lower: 0.0, upper: 1.0)
-        let drive = try DriveIntent(index: DriveIndex(0), activation: throttle)
-        return .driveIntents([drive], corrections: [])
+        let drives = try (0..<driveCount).map { index in
+            try DriveIntent(index: DriveIndex(UInt32(index)), activation: throttle)
+        }
+        return .driveIntents(drives, corrections: [])
     }
 
     private func clamp(_ value: Double, lower: Double, upper: Double) -> Double {

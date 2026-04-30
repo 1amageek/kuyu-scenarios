@@ -91,6 +91,12 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
         var final: EnvironmentStep?
         for _ in 0..<100 {
             let action = try await policy.action(for: observation)
+            switch action {
+            case .driveIntents(let drives, _):
+                #expect(drives.count == (definition.kind == .singleLiftHover ? 1 : 4))
+            case .actuatorValues(let values):
+                #expect(values.count == (definition.kind == .singleLiftHover ? 1 : 4))
+            }
             let step = try environment.step(action: action)
             #expect(step.reward.isFinite)
             observation = step.observation
