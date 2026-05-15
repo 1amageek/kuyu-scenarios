@@ -12,13 +12,12 @@ public struct KuyAtt1Validation<Cut: CutInterface, Nerve: MotorNerveEndpoint> {
         self.suiteRunner = ReferenceQuadrotorScenarioSuiteRunner(runner: runner, evaluator: ReferenceQuadrotorScenarioEvaluator())
     }
 
-    @MainActor
     public func run(
         cutFactory: (ReferenceQuadrotorScenarioDefinition) throws -> Cut,
         motorNerveFactory: ((ReferenceQuadrotorScenarioDefinition) throws -> Nerve?)? = nil,
         referenceLogs: [ScenarioKey: SimulationLog] = [:],
         control: SimulationControl? = nil,
-        telemetry: ((WorldStepLog) -> Void)? = nil
+        telemetry: WorldStepTelemetry? = nil
     ) async throws -> SuiteRunResult {
         let definitions = try suite.scenarios()
         return try await suiteRunner.run(
@@ -31,13 +30,12 @@ public struct KuyAtt1Validation<Cut: CutInterface, Nerve: MotorNerveEndpoint> {
         )
     }
 
-    @MainActor
     public func runWithLogs(
         cutFactory: (ReferenceQuadrotorScenarioDefinition) throws -> Cut,
         motorNerveFactory: ((ReferenceQuadrotorScenarioDefinition) throws -> Nerve?)? = nil,
         referenceLogs: [ScenarioKey: SimulationLog] = [:],
         control: SimulationControl? = nil,
-        telemetry: ((WorldStepLog) -> Void)? = nil
+        telemetry: WorldStepTelemetry? = nil
     ) async throws -> (result: SuiteRunResult, logs: [ScenarioLogEntry], manifest: [ReferenceQuadrotorScenarioManifest]) {
         let definitions = try suite.scenarios()
         let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)

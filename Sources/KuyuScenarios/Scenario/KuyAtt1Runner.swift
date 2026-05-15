@@ -59,7 +59,6 @@ public struct KuyAtt1Runner {
         try teacherBaseline(gains: gains, noise: noise, cutPeriodSteps: cutPeriodSteps)
     }
 
-    @MainActor
     public func run(
         referenceLogs: [ScenarioKey: SimulationLog] = [:],
         control: SimulationControl? = nil
@@ -84,7 +83,6 @@ public struct KuyAtt1Runner {
         )
     }
 
-    @MainActor
     public func runWithLogs(
         referenceLogs: [ScenarioKey: SimulationLog] = [:],
         control: SimulationControl? = nil

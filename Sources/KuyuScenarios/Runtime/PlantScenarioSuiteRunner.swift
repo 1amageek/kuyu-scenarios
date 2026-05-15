@@ -16,14 +16,13 @@ public struct PlantScenarioSuiteRunner<Runner: PlantScenarioRunner, Evaluator: S
         self.replayChecker = replayChecker
     }
 
-    @MainActor
     public func run(
         definitions: [Runner.Scenario],
         cutFactory: (Runner.Scenario) throws -> Runner.Cut,
         motorNerveFactory: ((Runner.Scenario) throws -> Runner.Nerve?)? = nil,
         referenceLogs: [ScenarioKey: SimulationLog] = [:],
         control: SimulationControl? = nil,
-        telemetry: ((WorldStepLog) -> Void)? = nil
+        telemetry: WorldStepTelemetry? = nil
     ) async throws -> SuiteRunResult {
         var evaluations: [ScenarioEvaluation] = []
         var replayChecks: [ReplayCheckResult] = []

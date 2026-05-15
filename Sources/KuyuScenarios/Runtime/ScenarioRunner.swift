@@ -8,7 +8,6 @@ public struct ScenarioRunner<Runner: PlantScenarioRunner> {
         self.runner = runner
     }
 
-    @MainActor
     public func runAll(
         definitions: [Runner.Scenario],
         cutFactory: (Runner.Scenario) throws -> Runner.Cut,

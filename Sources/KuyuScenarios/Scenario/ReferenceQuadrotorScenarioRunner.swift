@@ -30,13 +30,12 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
         self.hoverThrustScale = hoverThrustScale
     }
 
-    @MainActor
     public func runScenario(
         definition: ReferenceQuadrotorScenarioDefinition,
         cut: Cut,
         motorNerve: Nerve? = nil,
         control: SimulationControl? = nil,
-        telemetry: ((WorldStepLog) -> Void)? = nil
+        telemetry: WorldStepTelemetry? = nil
     ) async throws -> SimulationLog {
         let isSingleLift = definition.kind == .singleLiftHover
         let store = try buildStore(definition: definition)

@@ -6,12 +6,11 @@ public protocol PlantScenarioRunner {
     associatedtype Cut: CutInterface
     associatedtype Nerve: MotorNerveEndpoint
 
-    @MainActor
     func runScenario(
         definition: Scenario,
         cut: Cut,
         motorNerve: Nerve?,
         control: SimulationControl?,
-        telemetry: ((WorldStepLog) -> Void)?
+        telemetry: WorldStepTelemetry?
     ) async throws -> SimulationLog
 }

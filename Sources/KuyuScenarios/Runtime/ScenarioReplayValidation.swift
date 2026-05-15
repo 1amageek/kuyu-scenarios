@@ -1,7 +1,6 @@
 import KuyuCore
 import KuyuPhysics
 
-@MainActor
 public func validateScenarioReplay<Runner: PlantScenarioRunner>(
     runner: Runner,
     replayChecker: ReplayChecker,
