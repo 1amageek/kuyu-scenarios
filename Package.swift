@@ -16,8 +16,8 @@ let package = Package(
     dependencies: [
         .package(path: "../kuyu-core"),
         .package(path: "../kuyu-physics"),
-        .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
-        .package(url: "https://github.com/apple/swift-configuration", from: "1.0.2"),
+        .package(url: "https://github.com/apple/swift-log", from: "1.13.1"),
+        .package(url: "https://github.com/apple/swift-configuration", from: "1.2.0"),
     ],
     targets: [
         .target(
