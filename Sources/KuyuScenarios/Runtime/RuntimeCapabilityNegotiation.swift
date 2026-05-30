@@ -4,28 +4,28 @@ public struct RuntimeCapabilitySnapshot: Sendable, Equatable {
     public let sensorSet: [String]
     public let actuatorLimits: [String: ClosedRange<Double>]
     public let updateRates: [String: Double]
-    public let latencyBudgets: RobotDescriptor.LatencyBudgetsMs?
+    public let latencyBudgets: LatencyBudgets?
 
-    public init(descriptor: RobotDescriptor) {
-        sensorSet = descriptor.sensors.map(\.id).sorted()
+    public init(embodiment: EmbodimentContract) {
+        sensorSet = embodiment.sensors.map(\.id).sorted()
 
         var limits: [String: ClosedRange<Double>] = [:]
-        for actuator in descriptor.actuators {
+        for actuator in embodiment.actuators {
             limits[actuator.id] = actuator.limits.min...actuator.limits.max
         }
         actuatorLimits = limits
 
         var rates: [String: Double] = [:]
-        for sensor in descriptor.sensors {
+        for sensor in embodiment.sensors {
             rates["sensor:\(sensor.id)"] = sensor.rateHz
         }
-        for signal in descriptor.signals.actuator {
+        for signal in embodiment.signals.actuator {
             if let rate = signal.rateHz {
                 rates["actuator:\(signal.id)"] = rate
             }
         }
         updateRates = rates
-        latencyBudgets = descriptor.control.latencyBudgetsMs
+        latencyBudgets = embodiment.control.latencyBudgets
     }
 
     public func negotiate(_ request: RuntimeCapabilityRequest) throws -> RuntimeNegotiationResult {

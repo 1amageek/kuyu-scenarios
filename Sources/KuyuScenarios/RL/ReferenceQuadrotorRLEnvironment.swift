@@ -6,7 +6,7 @@ import KuyuPhysics
 public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
     public enum EnvironmentError: Error, Equatable {
         case unsupportedScenarioKind(ReferenceQuadrotorScenarioKind)
-        case unsupportedDescriptorShape(robotID: String, driveCount: Int, actuatorCount: Int)
+        case unsupportedRobotShape(robotID: String, driveCount: Int, actuatorCount: Int)
         case seedMismatch(expected: UInt64, actual: UInt64)
         case notReset
         case episodeTerminated
@@ -56,7 +56,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
     public var noise: IMU6NoiseConfig
     public var worldEnvironment: WorldEnvironment
     public var hoverThrustScale: Double
-    public var descriptorId: String?
+    public var robotManifestID: String?
     public var driveCount: Int
     public var actuatorCount: Int
     public var motorNerveRateLimitPerSecond: Double
@@ -84,7 +84,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
         noise: IMU6NoiseConfig = .zero,
         worldEnvironment: WorldEnvironment = .standard,
         hoverThrustScale: Double = 1.0,
-        descriptorId: String? = nil,
+        robotManifestID: String? = nil,
         driveCount: Int = 4,
         actuatorCount: Int = 4,
         motorNerveRateLimitPerSecond: Double = 2.0,
@@ -100,7 +100,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
         self.noise = noise
         self.worldEnvironment = worldEnvironment
         self.hoverThrustScale = hoverThrustScale
-        self.descriptorId = descriptorId
+        self.robotManifestID = robotManifestID
         self.driveCount = driveCount
         self.actuatorCount = actuatorCount
         self.motorNerveRateLimitPerSecond = motorNerveRateLimitPerSecond
@@ -111,7 +111,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
     }
 
     public init(
-        loadedDescriptor: LoadedRobotDescriptor,
+        loadedRobot: LoadedKuyuRobot,
         schedule: SimulationSchedule,
         determinism: DeterminismConfig,
         noise: IMU6NoiseConfig = .zero,
@@ -123,22 +123,22 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
         worldModelAdapter: (any WorldModelEnvironmentAdapter)? = nil,
         worldModelAdapterConfiguration: WorldModelAdapterConfiguration = WorldModelAdapterConfiguration()
     ) throws {
-        let descriptor = loadedDescriptor.descriptor
-        let driveCount = descriptor.control.driveChannels.count
-        let actuatorCount = descriptor.signals.actuator.count
+        let embodiment = loadedRobot.embodiment
+        let driveCount = embodiment.control.driveChannels.count
+        let actuatorCount = embodiment.signals.actuator.count
         guard (driveCount == 4 && actuatorCount == 4) || (driveCount == 1 && actuatorCount == 1) else {
-            throw EnvironmentError.unsupportedDescriptorShape(
-                robotID: descriptor.robot.robotID,
+            throw EnvironmentError.unsupportedRobotShape(
+                robotID: loadedRobot.manifest.robotID,
                 driveCount: driveCount,
                 actuatorCount: actuatorCount
             )
         }
 
-        let loader = RobotDescriptorLoader()
-        let inertial = try loader.loadPlantInertialProperties(descriptor: loadedDescriptor)
+        let loader = KuyuModelLoader()
+        let inertial = try loader.loadPlantInertialProperties(robot: loadedRobot)
         let parameters = try ReferenceQuadrotorParameters.reference(
             from: inertial,
-            robotID: descriptor.robot.robotID
+            robotID: loadedRobot.manifest.robotID
         )
 
         self.init(
@@ -148,7 +148,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
             noise: noise,
             worldEnvironment: worldEnvironment,
             hoverThrustScale: hoverThrustScale,
-            descriptorId: descriptor.robot.robotID,
+            robotManifestID: loadedRobot.manifest.robotID,
             driveCount: driveCount,
             actuatorCount: actuatorCount,
             motorNerveRateLimitPerSecond: motorNerveRateLimitPerSecond,
@@ -249,7 +249,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
             scenarioId: definition.config.id,
             seed: definition.config.seed,
             configHash: configHash,
-            descriptorId: descriptorId,
+            robotManifestID: robotManifestID,
             policyId: nil,
             rewardDescriptor: rewardFunction.descriptor,
             stepCount: nextStepCount,

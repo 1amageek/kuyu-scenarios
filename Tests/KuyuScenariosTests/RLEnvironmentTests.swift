@@ -247,26 +247,26 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
     #expect(stepObservation.sensorSamples.first { $0.channelIndex == 7 }?.value == step.log.plantState.root.velocity.z)
 }
 
-@Test func referenceQuadrotorEnvironmentCanBeConstructedFromBundledDescriptors() throws {
+@Test func referenceQuadrotorEnvironmentCanBeConstructedFromBundledRobots() throws {
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
-    let quad = try loadBundledDescriptor("QuadRef/quadref.model.json")
-    let single = try loadBundledDescriptor("SingleProp/singleprop.model.json")
+    let quad = try loadBundledRobot("QuadRef/quadref.kuyurobot.json")
+    let single = try loadBundledRobot("SingleProp/singleprop.kuyurobot.json")
 
     let quadEnvironment = try ReferenceQuadrotorRLEnvironment(
-        loadedDescriptor: quad,
+        loadedRobot: quad,
         schedule: schedule,
         determinism: .tier1Baseline
     )
     let singleEnvironment = try ReferenceQuadrotorRLEnvironment(
-        loadedDescriptor: single,
+        loadedRobot: single,
         schedule: schedule,
         determinism: .tier1Baseline
     )
 
-    #expect(quadEnvironment.descriptorId == "quadref-v0")
+    #expect(quadEnvironment.robotManifestID == "quadref-v0")
     #expect(quadEnvironment.driveCount == 4)
     #expect(quadEnvironment.actuatorCount == 4)
-    #expect(singleEnvironment.descriptorId == "singleprop-v0")
+    #expect(singleEnvironment.robotManifestID == "singleprop-v0")
     #expect(singleEnvironment.driveCount == 1)
     #expect(singleEnvironment.actuatorCount == 1)
     #expect(singleEnvironment.parameters.maxThrust == 12.0)
@@ -419,9 +419,9 @@ private func parameters(for kind: ReferenceQuadrotorScenarioKind) throws -> Refe
     )
 }
 
-private func loadBundledDescriptor(_ relativePath: String) throws -> LoadedRobotDescriptor {
+private func loadBundledRobot(_ relativePath: String) throws -> LoadedKuyuRobot {
     let path = "../kuyu/Sources/KuyuUI/Resources/Models/\(relativePath)"
-    return try RobotDescriptorLoader().loadDescriptor(path: path)
+    return try KuyuModelLoader().loadRobot(path: path)
 }
 
 private struct HighUncertaintyWorldModelAdapter: WorldModelEnvironmentAdapter {

@@ -52,7 +52,9 @@ public struct SimulationRunRequest: Sendable {
     public let cutPeriodSteps: UInt64
     public let noise: IMU6NoiseConfig
     public let determinism: DeterminismConfig
-    public let modelDescriptorPath: String
+    public let robotManifestPath: String
+    public let worldModelPath: String
+    public let readinessRequirement: ReadinessLevel
     public let overrideParameters: ReferenceQuadrotorParameters?
     public let useAux: Bool
     public let useQualityGating: Bool
@@ -66,7 +68,9 @@ public struct SimulationRunRequest: Sendable {
         cutPeriodSteps: UInt64,
         noise: IMU6NoiseConfig,
         determinism: DeterminismConfig,
-        modelDescriptorPath: String,
+        robotManifestPath: String,
+        worldModelPath: String = "",
+        readinessRequirement: ReadinessLevel = .dynamicSimulation,
         overrideParameters: ReferenceQuadrotorParameters?,
         useAux: Bool,
         useQualityGating: Bool,
@@ -79,7 +83,9 @@ public struct SimulationRunRequest: Sendable {
         self.cutPeriodSteps = cutPeriodSteps
         self.noise = noise
         self.determinism = determinism
-        self.modelDescriptorPath = modelDescriptorPath
+        self.robotManifestPath = robotManifestPath
+        self.worldModelPath = worldModelPath
+        self.readinessRequirement = readinessRequirement
         self.overrideParameters = overrideParameters
         self.useAux = useAux
         self.useQualityGating = useQualityGating

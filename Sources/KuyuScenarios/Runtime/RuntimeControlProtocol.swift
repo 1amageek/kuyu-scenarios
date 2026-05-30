@@ -123,11 +123,11 @@ public struct SimulationRuntimeAdapter: RuntimeControlAdapter {
     public init(
         adapterID: String = "simulation.default",
         transport: RuntimeTransportKind = .inProcess,
-        descriptor: RobotDescriptor
+        embodiment: EmbodimentContract
     ) {
         self.adapterID = adapterID
         self.transport = transport
-        self.capabilitySnapshot = RuntimeCapabilitySnapshot(descriptor: descriptor)
+        self.capabilitySnapshot = RuntimeCapabilitySnapshot(embodiment: embodiment)
     }
 }
 
