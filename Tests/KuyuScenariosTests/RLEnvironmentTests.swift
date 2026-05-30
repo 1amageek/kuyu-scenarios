@@ -152,6 +152,65 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
     }
 }
 
+@Test func referenceQuadrotorEnvironmentAppliesSingleLiftLatencyStress() async throws {
+    let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
+    let base = try makeShortLiftScenario(
+        kind: .singleLiftHover,
+        id: "KUY-RL-TEST/SLIFT-LATENCY",
+        seed: 48,
+        initialZ: 0.1,
+        targetZ: 0.5
+    )
+    let definition = try scenario(
+        from: base,
+        hfEvents: [
+            try HFStressEvent(kind: .latencySpike, startTime: 0.0, duration: 0.01, magnitude: 1.0),
+        ]
+    )
+    var environment = ReferenceQuadrotorRLEnvironment(
+        parameters: try parameters(for: definition.kind),
+        schedule: schedule,
+        determinism: .tier1Baseline,
+        motorNerveRateLimitPerSecond: 100.0,
+        motorNerveSmoothingTimeConstant: nil
+    )
+
+    let observation = try environment.reset(seed: definition.config.seed, scenario: definition)
+    #expect(observation.sensorSamples.isEmpty)
+}
+
+@Test func referenceQuadrotorEnvironmentRejectsSingleLiftTorqueStress() async throws {
+    let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
+    let base = try makeShortLiftScenario(
+        kind: .singleLiftHover,
+        id: "KUY-RL-TEST/SLIFT-TORQUE",
+        seed: 49,
+        initialZ: 0.1,
+        targetZ: 0.5
+    )
+    let definition = try scenario(
+        from: base,
+        torqueEvents: [
+            try TorqueDisturbanceEvent(
+                startTime: 0.0,
+                duration: 0.01,
+                torqueBody: Axis3(x: 0.0002, y: 0, z: 0)
+            ),
+        ]
+    )
+    var environment = ReferenceQuadrotorRLEnvironment(
+        parameters: try parameters(for: definition.kind),
+        schedule: schedule,
+        determinism: .tier1Baseline,
+        motorNerveRateLimitPerSecond: 100.0,
+        motorNerveSmoothingTimeConstant: nil
+    )
+
+    #expect(throws: ReferenceQuadrotorRLEnvironment.EnvironmentError.self) {
+        _ = try environment.reset(seed: definition.config.seed, scenario: definition)
+    }
+}
+
 @Test func referenceQuadrotorEnvironmentResetAndStepUseSameLiftObservationSchema() async throws {
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
     let definition = try makeShortLiftScenario(
@@ -321,6 +380,28 @@ private func makeShortLiftScenario(
         gyroDriftScale: 1.0,
         swapEvents: [],
         hfEvents: []
+    )
+}
+
+private func scenario(
+    from definition: ReferenceQuadrotorScenarioDefinition,
+    torqueEvents: [TorqueDisturbanceEvent]? = nil,
+    swapEvents: [SwapEvent]? = nil,
+    hfEvents: [HFStressEvent]? = nil
+) throws -> ReferenceQuadrotorScenarioDefinition {
+    ReferenceQuadrotorScenarioDefinition(
+        config: definition.config,
+        kind: definition.kind,
+        initialPosition: definition.initialPosition,
+        initialAttitude: definition.initialAttitude,
+        initialAngularVelocity: definition.initialAngularVelocity,
+        safetyEnvelope: definition.safetyEnvelope,
+        liftEnvelope: definition.liftEnvelope,
+        torqueEvents: torqueEvents ?? definition.torqueEvents,
+        actuatorDegradation: definition.actuatorDegradation,
+        gyroDriftScale: definition.gyroDriftScale,
+        swapEvents: swapEvents ?? definition.swapEvents,
+        hfEvents: hfEvents ?? definition.hfEvents
     )
 }
 

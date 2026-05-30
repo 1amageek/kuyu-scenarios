@@ -11,14 +11,18 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
         case notReset
         case episodeTerminated
         case invalidStepLimit
+        case unsupportedSingleLiftStress(String)
     }
 
     private typealias QuadActuator = SwappableActuatorEngine<ActuatorDegradationEngine>
+    private typealias QuadSensor = SwappableSensorField<IMU6SensorField>
+    private typealias SingleActuator = SwappableActuatorEngine<SinglePropActuatorEngine>
+    private typealias SingleSensor = SwappableSensorField<SinglePropIMU6SensorField>
     private typealias QuadSimulator = WorldSimulator<
         TorqueDisturbanceField,
         QuadActuator,
         ReferenceQuadrotorPlantEngine,
-        SwappableSensorField,
+        QuadSensor,
         EnvironmentActionCut,
         FixedQuadMotorNerve
     >
@@ -26,15 +30,15 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
         TorqueDisturbanceField,
         QuadActuator,
         ReferenceQuadrotorPlantEngine,
-        SwappableSensorField,
+        QuadSensor,
         EnvironmentActionCut,
         LiftMotorNerve
     >
     private typealias SingleSimulator = WorldSimulator<
         TorqueDisturbanceField,
-        SinglePropActuatorEngine,
+        SingleActuator,
         SinglePropPlantEngine,
-        SinglePropIMU6SensorField,
+        SingleSensor,
         EnvironmentActionCut,
         FixedSinglePropMotorNerve
     >
@@ -481,18 +485,26 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
         definition: ReferenceQuadrotorScenarioDefinition,
         config simulationConfig: SimulationConfig
     ) throws -> SingleSimulator {
+        try validateSingleLiftStress(definition: definition)
         let timeStep = definition.config.timeStep
         let store = try buildStore(definition: definition)
         let scaledNoise = try scaledNoise(for: definition)
-        let actuator = SinglePropActuatorEngine(
+        let baseMaxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
+        let actuatorBase = SinglePropActuatorEngine(
             maxThrust: parameters.maxThrust,
             motorTimeConstant: parameters.motorTimeConstant,
             store: store,
             timeStep: timeStep
         )
+        let actuator = SwappableActuatorEngine(
+            engine: actuatorBase,
+            baseMaxThrusts: baseMaxThrusts,
+            swapEvents: definition.swapEvents,
+            hfEvents: definition.hfEvents
+        )
         let disturbance = TorqueDisturbanceField(
             events: [],
-            hfEvents: [],
+            hfEvents: definition.hfEvents,
             store: store
         )
         let plant = SinglePropPlantEngine(
@@ -501,7 +513,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
             timeStep: timeStep,
             environment: worldEnvironment
         )
-        let sensor = try SinglePropIMU6SensorField(
+        let baseSensor = try SinglePropIMU6SensorField(
             parameters: parameters,
             store: store,
             timeStep: timeStep,
@@ -514,6 +526,13 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
             accelBias: scaledNoise.accelBias,
             accelRandomWalkSigma: scaledNoise.accelRandomWalkSigma,
             delaySteps: scaledNoise.delaySteps
+        )
+        let sensor = SwappableSensorField(
+            base: baseSensor,
+            swapEvents: definition.swapEvents,
+            hfEvents: definition.hfEvents,
+            baseNoise: scaledNoise,
+            seed: definition.config.seed.rawValue
         )
         let motorNerve = FixedSinglePropMotorNerve(
             config: FixedSinglePropMotorNerve.Config(
@@ -531,6 +550,33 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
             cut: EnvironmentActionCut(),
             motorNerve: motorNerve
         )
+    }
+
+    private func validateSingleLiftStress(definition: ReferenceQuadrotorScenarioDefinition) throws {
+        guard definition.torqueEvents.isEmpty else {
+            throw EnvironmentError.unsupportedSingleLiftStress("torqueEvents")
+        }
+        guard definition.actuatorDegradation == nil else {
+            throw EnvironmentError.unsupportedSingleLiftStress("actuatorDegradation")
+        }
+        for event in definition.hfEvents {
+            switch event.kind {
+            case .impulse, .vibration:
+                throw EnvironmentError.unsupportedSingleLiftStress("hfEvent.\(event.kind.rawValue)")
+            default:
+                break
+            }
+        }
+        for event in definition.swapEvents {
+            switch event {
+            case .actuator(let actuator) where actuator.motorIndex != 0:
+                throw EnvironmentError.unsupportedSingleLiftStress("actuatorSwap.motorIndex.\(actuator.motorIndex)")
+            case .sensor(let sensor) where sensor.targetChannels.contains(where: { $0 > 7 }):
+                throw EnvironmentError.unsupportedSingleLiftStress("sensorSwap.targetChannel")
+            default:
+                break
+            }
+        }
     }
 
     private func scaledNoise(for definition: ReferenceQuadrotorScenarioDefinition) throws -> IMU6NoiseConfig {

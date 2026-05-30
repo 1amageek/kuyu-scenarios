@@ -4,6 +4,10 @@ import KuyuPhysics
 
 /// Reference plant profile (quadrotor). Other morphologies should implement `PlantScenarioRunner`.
 public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNerveEndpoint>: PlantScenarioRunner {
+    public enum RunnerError: Error, Sendable, Equatable {
+        case unsupportedSingleLiftStress(String)
+    }
+
     public var parameters: ReferenceQuadrotorParameters
     public var mixer: ReferenceQuadrotorMixer
     public var schedule: SimulationSchedule
@@ -52,15 +56,23 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
         )
 
         if isSingleLift {
-            let actuator = SinglePropActuatorEngine(
+            try validateSingleLiftStress(definition: definition)
+            let baseMaxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
+            let actuatorBase = SinglePropActuatorEngine(
                 maxThrust: parameters.maxThrust,
                 motorTimeConstant: parameters.motorTimeConstant,
                 store: store,
                 timeStep: timeStep
             )
+            let actuator = SwappableActuatorEngine(
+                engine: actuatorBase,
+                baseMaxThrusts: baseMaxThrusts,
+                swapEvents: definition.swapEvents,
+                hfEvents: definition.hfEvents
+            )
             let disturbance = TorqueDisturbanceField(
                 events: [],
-                hfEvents: [],
+                hfEvents: definition.hfEvents,
                 store: store
             )
             let plant = SinglePropPlantEngine(
@@ -69,7 +81,7 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
                 timeStep: timeStep,
                 environment: environment
             )
-            let sensor = try SinglePropIMU6SensorField(
+            let baseSensor = try SinglePropIMU6SensorField(
                 parameters: parameters,
                 store: store,
                 timeStep: timeStep,
@@ -82,6 +94,13 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
                 accelBias: scaledNoise.accelBias,
                 accelRandomWalkSigma: scaledNoise.accelRandomWalkSigma,
                 delaySteps: scaledNoise.delaySteps
+            )
+            let sensor = SwappableSensorField(
+                base: baseSensor,
+                swapEvents: definition.swapEvents,
+                hfEvents: definition.hfEvents,
+                baseNoise: scaledNoise,
+                seed: definition.config.seed.rawValue
             )
 
             let config = SimulationConfig(
@@ -106,13 +125,17 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
                 timeStep: definition.config.timeStep.delta
             )
 
-            return try await simulator.run(
+            let log = try await simulator.run(
                 control: control,
                 telemetry: telemetry,
                 failureCheck: { log in
                     monitor.update(log: log)
                 }
             )
+            return log.withEventSchedule(StressEventSchedule(
+                swapEvents: definition.swapEvents,
+                hfEvents: definition.hfEvents
+            ))
         }
 
         let baseMaxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
@@ -192,13 +215,17 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
             timeStep: definition.config.timeStep.delta
         )
 
-        return try await simulator.run(
+        let log = try await simulator.run(
             control: control,
             telemetry: telemetry,
             failureCheck: { log in
                 monitor.update(log: log)
             }
         )
+        return log.withEventSchedule(StressEventSchedule(
+            swapEvents: definition.swapEvents,
+            hfEvents: definition.hfEvents
+        ))
     }
 
     private func buildStore(definition: ReferenceQuadrotorScenarioDefinition) throws -> ReferenceQuadrotorWorldStore {
@@ -233,6 +260,33 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
         let hoverThrust = parameters.mass * parameters.gravity / 4.0 * hoverThrustScale
         let thrusts = try MotorThrusts.uniform(hoverThrust)
         return ReferenceQuadrotorWorldStore(state: state, motorThrusts: thrusts)
+    }
+
+    private func validateSingleLiftStress(definition: ReferenceQuadrotorScenarioDefinition) throws {
+        guard definition.torqueEvents.isEmpty else {
+            throw RunnerError.unsupportedSingleLiftStress("torqueEvents")
+        }
+        guard definition.actuatorDegradation == nil else {
+            throw RunnerError.unsupportedSingleLiftStress("actuatorDegradation")
+        }
+        for event in definition.hfEvents {
+            switch event.kind {
+            case .impulse, .vibration:
+                throw RunnerError.unsupportedSingleLiftStress("hfEvent.\(event.kind.rawValue)")
+            default:
+                break
+            }
+        }
+        for event in definition.swapEvents {
+            switch event {
+            case .actuator(let actuator) where actuator.motorIndex != 0:
+                throw RunnerError.unsupportedSingleLiftStress("actuatorSwap.motorIndex.\(actuator.motorIndex)")
+            case .sensor(let sensor) where sensor.targetChannels.contains(where: { $0 > 7 }):
+                throw RunnerError.unsupportedSingleLiftStress("sensorSwap.targetChannel")
+            default:
+                break
+            }
+        }
     }
 
 }
