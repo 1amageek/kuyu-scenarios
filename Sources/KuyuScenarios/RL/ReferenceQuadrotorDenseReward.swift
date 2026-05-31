@@ -39,13 +39,12 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
 
     public init(config: Config = Config()) {
         self.config = config
-        // version 2: the vertical-velocity (descent) penalty now applies to ALL
-        // tasks (previously lift-only), giving attitude a dense altitude-hold
-        // signal. The configHash is over the Config weights (unchanged), so the
-        // version bump is what records the reward-computation change in provenance.
+        // version 3: attitude tasks without a lift envelope now receive dense
+        // altitude-hold reward around their initial height. The configHash is over
+        // the Config weights, so the version records this semantic change.
         self.descriptor = RewardDescriptor(
             id: "reference-quadrotor-dense",
-            version: "2",
+            version: "3",
             configHash: Self.configHash(config)
         )
     }
@@ -64,23 +63,22 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
             - (config.omegaPenalty * normalizedOmega)
             - (config.controlPenalty * controlMagnitude)
 
-        // Dense vertical-velocity (descent/climb) penalty for ALL tasks. Previously
-        // this term — and the altitude-error term — applied ONLY when a liftEnvelope
-        // was present, so an attitude policy received no dense reward gradient
-        // against losing altitude even though the evaluator fails `sustained-fall`.
-        // Without it neither imitation nor RL can learn the active altitude hold the
-        // attitude teacher (fixed hover thrust) never demonstrates. The reference
-        // velocity is the lift envelope's max velocity when present, else a 0.5 m/s
-        // hover-hold scale; lift's reward value is unchanged.
-        let referenceVerticalVelocity = scenario.liftEnvelope?.maxVelocity ?? 0.5
-        let normalizedVerticalVelocity = clamp(abs(log.plantState.root.velocity.z) / max(referenceVerticalVelocity, 1e-6))
+        let altitudeReference = try ReferenceQuadrotorAltitudeHoldReference(definition: scenario)
+        // Dense vertical-velocity penalty for all tasks. Scenario semantics own
+        // the reference velocity so reward, observation, and tensor worlds agree.
+        let normalizedVerticalVelocity = clamp(
+            abs(log.plantState.root.velocity.z) / max(altitudeReference.referenceVerticalVelocity, 1e-6)
+        )
         value -= config.verticalVelocityPenalty * normalizedVerticalVelocity
 
-        if let liftEnvelope = scenario.liftEnvelope {
-            let altitudeError = abs(log.plantState.root.position.z - liftEnvelope.targetZ)
-            let normalizedAltitudeError = clamp(altitudeError / max(liftEnvelope.tolerance, 1e-6))
-            value -= config.altitudePenalty * normalizedAltitudeError
-        }
+        // Dense altitude-position penalty for all tasks. Lift/single-lift use their
+        // explicit lift envelope; attitude has no lift envelope, so the scenario's
+        // initial altitude is the hover target. Without this P-like position term,
+        // attitude PPO only sees a D-like |vz| penalty and can settle into slow
+        // descent with little immediate reward pressure to climb back.
+        let altitudeError = abs(log.plantState.root.position.z - altitudeReference.targetPosition.z)
+        let normalizedAltitudeError = clamp(altitudeError / max(altitudeReference.tolerance, 1e-6))
+        value -= config.altitudePenalty * normalizedAltitudeError
 
         if failure != nil {
             value -= config.failurePenalty

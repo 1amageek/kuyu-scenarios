@@ -1,7 +1,7 @@
 import KuyuCore
 import KuyuPhysics
 
-public struct PlantScenarioSuiteRunner<Runner: PlantScenarioRunner, Evaluator: ScenarioEvaluating> where Runner.Scenario == Evaluator.Scenario {
+public struct PlantScenarioSuiteRunner<Runner: PlantScenarioRunner, Evaluator: ScenarioEvaluating> where Runner.Scenario == Evaluator.Scenario, Runner.Cut: Sendable {
     public var runner: Runner
     public var evaluator: Evaluator
     public var replayChecker: ReplayChecker
@@ -35,7 +35,7 @@ public struct PlantScenarioSuiteRunner<Runner: PlantScenarioRunner, Evaluator: S
             let motorNerve = try motorNerveFactory?(definition) ?? nil
             let log = try await runner.runScenario(
                 definition: definition,
-                cut: cut,
+                cut: consume cut,
                 motorNerve: motorNerve,
                 control: control,
                 telemetry: telemetry

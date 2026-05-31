@@ -1,7 +1,7 @@
 import KuyuCore
 import KuyuPhysics
 
-public struct KuyAtt1Validation<Cut: CutInterface, Nerve: MotorNerveEndpoint> {
+public struct KuyAtt1Validation<Cut: CutInterface & Sendable, Nerve: MotorNerveEndpoint> {
     public var suite: KuyAtt1Suite
     public var runner: ReferenceQuadrotorScenarioRunner<Cut, Nerve>
     public var suiteRunner: ReferenceQuadrotorScenarioSuiteRunner<Cut, Nerve>
@@ -52,7 +52,7 @@ public struct KuyAtt1Validation<Cut: CutInterface, Nerve: MotorNerveEndpoint> {
             let motorNerve = try motorNerveFactory?(definition) ?? nil
             let log = try await runner.runScenario(
                 definition: definition,
-                cut: cut,
+                cut: consume cut,
                 motorNerve: motorNerve,
                 control: control,
                 telemetry: telemetry

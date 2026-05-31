@@ -9,7 +9,7 @@ public func validateScenarioReplay<Runner: PlantScenarioRunner>(
     cutFactory: (Runner.Scenario) throws -> Runner.Cut,
     motorNerveFactory: ((Runner.Scenario) throws -> Runner.Nerve?)?,
     referenceLogs: [ScenarioKey: SimulationLog]
-) async throws -> ReplayCheckResult {
+) async throws -> ReplayCheckResult where Runner.Cut: Sendable {
     let key = ScenarioKey(scenarioId: primaryLog.scenarioId, seed: primaryLog.seed)
     if let reference = referenceLogs[key] {
         return try replayChecker.check(reference: reference, candidate: primaryLog)
@@ -19,7 +19,7 @@ public func validateScenarioReplay<Runner: PlantScenarioRunner>(
     let replayMotorNerve = try motorNerveFactory?(definition) ?? nil
     let replayLog = try await runner.runScenario(
         definition: definition,
-        cut: replayCut,
+        cut: consume replayCut,
         motorNerve: replayMotorNerve,
         control: nil,
         telemetry: nil

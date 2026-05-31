@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import KuyuCore
 import KuyuPhysics
@@ -293,6 +294,60 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
     #expect(step.info.rewardDescriptor == reward.descriptor)
 }
 
+@Test func denseRewardPenalizesAttitudeAltitudeErrorWithoutLiftEnvelope() throws {
+    let definition = try makeShortAttitudeScenario()
+    let reward = ReferenceQuadrotorDenseReward(
+        config: ReferenceQuadrotorDenseReward.Config(verticalVelocityPenalty: 0)
+    )
+    let targetLog = try makeRewardLog(altitude: definition.initialPosition.z, verticalVelocity: 0)
+    let lowLog = try makeRewardLog(altitude: definition.initialPosition.z - 0.1, verticalVelocity: 0)
+
+    let targetReward = try reward.reward(
+        scenario: definition,
+        log: targetLog,
+        failure: nil,
+        truncated: false
+    )
+    let lowReward = try reward.reward(
+        scenario: definition,
+        log: lowLog,
+        failure: nil,
+        truncated: false
+    )
+
+    #expect(definition.liftEnvelope == nil)
+    #expect(reward.descriptor.version == "3")
+    #expect(lowReward < targetReward)
+}
+
+@Test func altitudeHoldReferenceUsesScenarioAuthority() throws {
+    let attitude = try makeShortAttitudeScenario()
+    let attitudeReference = try ReferenceQuadrotorAltitudeHoldReference(definition: attitude)
+    let lift = try makeShortLiftScenario(
+        kind: .liftHover,
+        id: "KUY-RL-TEST/LIFT-REFERENCE",
+        seed: 45,
+        initialZ: 1.0,
+        targetZ: 2.5
+    )
+    let liftReference = try ReferenceQuadrotorAltitudeHoldReference(definition: lift)
+
+    #expect(attitude.liftEnvelope == nil)
+    #expect(attitudeReference.targetPosition.x == attitude.initialPosition.x)
+    #expect(attitudeReference.targetPosition.y == attitude.initialPosition.y)
+    #expect(attitudeReference.targetPosition.z == attitude.initialPosition.z)
+    #expect(attitudeReference.tolerance == ReferenceQuadrotorAltitudeHoldReference.attitudeTolerance)
+    #expect(
+        attitudeReference.referenceVerticalVelocity
+            == ReferenceQuadrotorAltitudeHoldReference.attitudeReferenceVerticalVelocity
+    )
+    #expect(liftReference.targetPosition.x == lift.initialPosition.x)
+    #expect(liftReference.targetPosition.y == lift.initialPosition.y)
+    #expect(liftReference.targetPosition.z == 2.5)
+    #expect(liftReference.tolerance == lift.liftEnvelope?.tolerance)
+    #expect(liftReference.referenceVerticalVelocity == lift.liftEnvelope?.maxVelocity)
+}
+
 @Test func referenceQuadrotorEnvironmentValidatesPhysicsOnlyWorldModelAdapter() async throws {
     let definition = try makeShortAttitudeScenario()
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
@@ -315,12 +370,14 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
 @Test func referenceQuadrotorEnvironmentRejectsInvalidWorldModelPredictionWithoutAdvancingState() async throws {
     let definition = try makeShortAttitudeScenario()
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
+    let adapterConfiguration = WorldModelAdapterConfiguration(uncertaintyThreshold: 0.25)
     var environment = ReferenceQuadrotorRLEnvironment(
         schedule: schedule,
         determinism: .tier1Baseline,
         motorNerveRateLimitPerSecond: 100.0,
         motorNerveSmoothingTimeConstant: nil,
-        worldModelAdapter: HighUncertaintyWorldModelAdapter()
+        worldModelAdapter: HighUncertaintyWorldModelAdapter(),
+        worldModelAdapterConfiguration: adapterConfiguration
     )
 
     _ = try environment.reset(seed: definition.config.seed, scenario: definition)
@@ -330,7 +387,7 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
         Issue.record("Expected world-model rejection")
     } catch WorldModelAdapterRejection.uncertaintyExceeded(let actual, let limit) {
         #expect(actual == 1.0)
-        #expect(limit == 0.0)
+        #expect(limit == adapterConfiguration.uncertaintyThreshold)
     }
 
     environment.worldModelAdapter = nil
@@ -420,8 +477,45 @@ private func parameters(for kind: ReferenceQuadrotorScenarioKind) throws -> Refe
 }
 
 private func loadBundledRobot(_ relativePath: String) throws -> LoadedKuyuRobot {
-    let path = "../kuyu/Sources/KuyuUI/Resources/Models/\(relativePath)"
-    return try KuyuModelLoader().loadRobot(path: path)
+    let testFile = URL(fileURLWithPath: #filePath)
+    let packageRoot = testFile
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let workspaceRoot = packageRoot.deletingLastPathComponent()
+    let resourceURL = workspaceRoot
+        .appendingPathComponent("kuyu")
+        .appendingPathComponent("Sources")
+        .appendingPathComponent("KuyuUI")
+        .appendingPathComponent("Resources")
+        .appendingPathComponent("Models")
+        .appendingPathComponent(relativePath)
+    return try KuyuModelLoader().loadRobot(path: resourceURL.path)
+}
+
+private func makeRewardLog(altitude: Double, verticalVelocity: Double) throws -> WorldStepLog {
+    let root = RigidBodySnapshot(
+        id: "root",
+        position: Axis3(x: 0, y: 0, z: altitude),
+        velocity: Axis3(x: 0, y: 0, z: verticalVelocity),
+        orientation: QuaternionSnapshot(w: 1, x: 0, y: 0, z: 0),
+        angularVelocity: Axis3(x: 0, y: 0, z: 0)
+    )
+    return WorldStepLog(
+        time: try WorldTime(stepIndex: 1, time: 0.001),
+        events: [],
+        sensorSamples: [],
+        driveIntents: [],
+        reflexCorrections: [],
+        actuatorValues: [],
+        actuatorTelemetry: ActuatorTelemetrySnapshot(channels: []),
+        safetyTrace: try SafetyTrace(omegaMagnitude: 0, tiltRadians: 0),
+        plantState: PlantStateSnapshot(root: root),
+        disturbances: DisturbanceSnapshot(
+            forceWorld: Axis3(x: 0, y: 0, z: 0),
+            torqueBody: Axis3(x: 0, y: 0, z: 0)
+        )
+    )
 }
 
 private struct HighUncertaintyWorldModelAdapter: WorldModelEnvironmentAdapter {

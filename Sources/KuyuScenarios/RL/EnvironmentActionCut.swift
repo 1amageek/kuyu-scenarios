@@ -1,6 +1,6 @@
 import KuyuCore
 
-public struct EnvironmentActionCut: CutInterface {
+public struct EnvironmentActionCut: CutInterface, Sendable {
     public var action: EnvironmentAction
 
     public init(action: EnvironmentAction = .driveIntents([], corrections: [])) {

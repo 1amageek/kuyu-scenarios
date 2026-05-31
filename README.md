@@ -6,6 +6,33 @@ Scenario definitions, evaluation suites, and logging for the Kuyu simulation env
 
 kuyu-scenarios provides the evaluation infrastructure for testing controllers. It defines scenario suites, runs simulations with specific configurations, evaluates performance metrics, and produces structured logs.
 
+## Responsibility Boundary
+
+`kuyu-scenarios` is the authority for simulation-task semantics. Code outside
+this package may execute or learn from scenarios, but it should not reinterpret
+their target state, safety rules, reward meaning, or pass/fail semantics.
+
+| Owned here | Not owned here |
+|---|---|
+| Scenario definitions and deterministic seeds | Training loop scheduling |
+| Safety, failure, truncation, and task-quality semantics | PPO/BC/evolution algorithms |
+| Reward functions and `RewardDescriptor` provenance | Checkpoint selection or publication |
+| Scenario-derived references such as altitude-hold target/tolerance | Dataset persistence formats beyond scenario logs |
+| Simulation logs and replay validation | MLX model architecture or optimizer details |
+
+### Reliability Contract
+
+- Scenario-derived quantities must be represented by typed APIs rather than
+  duplicated fallbacks in backend packages.
+- Reward changes must bump `RewardDescriptor.version` when behavior changes
+  without a config-weight change.
+- Attitude scenarios without a `LiftEnvelope` still own an altitude-hold
+  reference: the initial z position is the hover target, with the package-level
+  tolerance and velocity reference exposed through
+  `ReferenceQuadrotorAltitudeHoldReference`.
+- Backends such as `kuyu-mlx` must consume these scenario references instead of
+  hard-coding fallback target heights.
+
 ### Evaluation Suites
 
 - **KuyAtt1Suite** — Attitude stabilization scenarios (hover, step response, disturbance rejection).

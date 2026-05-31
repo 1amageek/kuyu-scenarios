@@ -1,7 +1,7 @@
 import KuyuCore
 import KuyuPhysics
 
-public struct ScenarioRunner<Runner: PlantScenarioRunner> {
+public struct ScenarioRunner<Runner: PlantScenarioRunner> where Runner.Cut: Sendable {
     public let runner: Runner
 
     public init(runner: Runner) {
@@ -26,7 +26,7 @@ public struct ScenarioRunner<Runner: PlantScenarioRunner> {
             }
             let log = try await runner.runScenario(
                 definition: definition,
-                cut: cut,
+                cut: consume cut,
                 motorNerve: nerve,
                 control: nil,
                 telemetry: nil

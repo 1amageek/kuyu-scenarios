@@ -8,7 +8,7 @@ public protocol PlantScenarioRunner {
 
     func runScenario(
         definition: Scenario,
-        cut: Cut,
+        cut: sending Cut,
         motorNerve: Nerve?,
         control: SimulationControl?,
         telemetry: WorldStepTelemetry?

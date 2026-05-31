@@ -36,7 +36,7 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
 
     public func runScenario(
         definition: ReferenceQuadrotorScenarioDefinition,
-        cut: Cut,
+        cut: sending Cut,
         motorNerve: Nerve? = nil,
         control: SimulationControl? = nil,
         telemetry: WorldStepTelemetry? = nil
