@@ -8,30 +8,62 @@ public protocol ReferenceQuadrotorEnvironmentPolicy {
 
 public struct KuyAtt1BaselineEnvironmentPolicy: ReferenceQuadrotorEnvironmentPolicy {
     public let policyID: String
-    private var cut: ImuRateDampingDriveCut
+    private var controller: Controller
 
     public init(
         definition: ReferenceQuadrotorScenarioDefinition,
         parameters: ReferenceQuadrotorParameters = .baseline,
         gains: ImuRateDampingCutGains,
-        mode: KuyAtt1BaselineMode
+        mode: KuyAtt1BaselineMode,
+        teacherConfig: PrivilegedAltitudeHoldTeacherConfig = .activeAltitudeHold
     ) throws {
-        let hoverThrust = parameters.mass * parameters.gravity / 4.0 * gains.hoverThrustScale
-        let initialAttitude: EulerAngles
-        let tiltCorrectionTimeConstant: Double?
-
         switch mode {
         case .teacher:
-            initialAttitude = definition.initialAttitude
-            tiltCorrectionTimeConstant = nil
-            policyID = "teacherBaseline"
+            self.policyID = "teacherActiveAltitudeHold"
+            self.controller = .privileged(
+                try KuyAtt1PrivilegedAltitudeHoldTeacher(
+                    definition: definition,
+                    parameters: parameters,
+                    gains: gains,
+                    config: teacherConfig
+                )
+            )
         case .sensor:
-            initialAttitude = EulerAngles(roll: 0, pitch: 0, yaw: 0)
-            tiltCorrectionTimeConstant = 0.4
-            policyID = "sensorBaseline"
+            self.policyID = "sensorBaseline"
+            self.controller = .sensor(
+                try Self.makeSensorCut(
+                    parameters: parameters,
+                    gains: gains
+                )
+            )
         }
+    }
 
-        cut = try ImuRateDampingDriveCut(
+    public mutating func action(for observation: EnvironmentObservation) async throws -> EnvironmentAction {
+        switch controller {
+        case .sensor(var cut):
+            let output = try cut.update(samples: observation.sensorSamples, time: observation.time)
+            controller = .sensor(cut)
+            switch output {
+            case .driveIntents(let drives, let corrections):
+                return .driveIntents(drives, corrections: corrections)
+            case .actuatorValues(let values):
+                return .actuatorValues(values)
+            }
+        case .privileged(var teacher):
+            let action = try teacher.action(for: observation)
+            controller = .privileged(teacher)
+            return action
+        }
+    }
+
+    private static func makeSensorCut(
+        parameters: ReferenceQuadrotorParameters,
+        gains: ImuRateDampingCutGains
+    ) throws -> ImuRateDampingDriveCut {
+        let hoverThrust = parameters.mass * parameters.gravity / 4.0 * gains.hoverThrustScale
+
+        return try ImuRateDampingDriveCut(
             hoverThrust: hoverThrust,
             kp: gains.kp,
             kd: gains.kd,
@@ -39,20 +71,15 @@ public struct KuyAtt1BaselineEnvironmentPolicy: ReferenceQuadrotorEnvironmentPol
             armLength: parameters.armLength,
             yawCoefficient: parameters.yawCoefficient,
             maxThrust: parameters.maxThrust,
-            initialRoll: initialAttitude.roll,
-            initialPitch: initialAttitude.pitch,
-            tiltCorrectionTimeConstant: tiltCorrectionTimeConstant
+            initialRoll: 0,
+            initialPitch: 0,
+            tiltCorrectionTimeConstant: 0.4
         )
     }
 
-    public mutating func action(for observation: EnvironmentObservation) async throws -> EnvironmentAction {
-        let output = try cut.update(samples: observation.sensorSamples, time: observation.time)
-        switch output {
-        case .driveIntents(let drives, let corrections):
-            return .driveIntents(drives, corrections: corrections)
-        case .actuatorValues(let values):
-            return .actuatorValues(values)
-        }
+    private enum Controller: Sendable {
+        case sensor(ImuRateDampingDriveCut)
+        case privileged(KuyAtt1PrivilegedAltitudeHoldTeacher)
     }
 }
 
@@ -81,7 +108,7 @@ public struct KuyLiftBaselineEnvironmentPolicy: ReferenceQuadrotorEnvironmentPol
             throw PolicyError.missingLiftEnvelope
         }
 
-        self.policyID = mode == .teacher ? "teacherBaseline" : "sensorBaseline"
+        self.policyID = mode == .teacher ? "teacherActiveAltitudeHold" : "sensorBaseline"
         self.targetZ = envelope.targetZ
         self.driveCount = definition.kind == .singleLiftHover ? 1 : 4
         self.hoverThrust = parameters.mass * parameters.gravity / Double(driveCount) * hoverThrustScale

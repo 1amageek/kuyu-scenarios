@@ -2,14 +2,12 @@ import KuyuCore
 import KuyuPhysics
 
 public enum ControllerSelection: String, CaseIterable, Identifiable, Sendable {
-    /// Legacy alias retained for compatibility. New UI/runtime code should use `.teacherBaseline`.
-    case baseline = "Baseline"
-    case teacherBaseline = "Teacher Baseline"
+    case teacherActiveAltitudeHold = "Teacher Active Altitude Hold"
     case sensorBaseline = "Sensor Baseline"
     case manasMLX = "ManasMLX"
 
     public static let allCases: [ControllerSelection] = [
-        .teacherBaseline,
+        .teacherActiveAltitudeHold,
         .sensorBaseline,
         .manasMLX,
     ]
@@ -18,7 +16,7 @@ public enum ControllerSelection: String, CaseIterable, Identifiable, Sendable {
 
     public var isBaselineController: Bool {
         switch self {
-        case .baseline, .teacherBaseline, .sensorBaseline:
+        case .teacherActiveAltitudeHold, .sensorBaseline:
             return true
         case .manasMLX:
             return false
@@ -27,7 +25,7 @@ public enum ControllerSelection: String, CaseIterable, Identifiable, Sendable {
 
     public var kuyAtt1BaselineMode: KuyAtt1BaselineMode? {
         switch self {
-        case .baseline, .teacherBaseline:
+        case .teacherActiveAltitudeHold:
             return .teacher
         case .sensorBaseline:
             return .sensor

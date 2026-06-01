@@ -36,6 +36,58 @@ import KuyuPhysics
     #expect(final?.info.failureReason == nil)
 }
 
+@Test func privilegedAltitudeTeacherAdjustsOnlyCollectiveThrottle() async throws {
+    let definition = try makeShortAttitudeScenario()
+    let gains = try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2)
+    let lowObservation = EnvironmentObservation(
+        log: try makeRewardLog(altitude: definition.initialPosition.z - 0.25, verticalVelocity: 0)
+    )
+    let highObservation = EnvironmentObservation(
+        log: try makeRewardLog(altitude: definition.initialPosition.z + 0.25, verticalVelocity: 0)
+    )
+    let referenceObservation = EnvironmentObservation(
+        log: try makeRewardLog(altitude: definition.initialPosition.z, verticalVelocity: 0)
+    )
+
+    var activeLow = try KuyAtt1BaselineEnvironmentPolicy(
+        definition: definition,
+        gains: gains,
+        mode: .teacher
+    )
+    let activeLowDrives = try driveIntents(from: try await activeLow.action(for: lowObservation))
+
+    var activeHigh = try KuyAtt1BaselineEnvironmentPolicy(
+        definition: definition,
+        gains: gains,
+        mode: .teacher
+    )
+    let activeHighDrives = try driveIntents(from: try await activeHigh.action(for: highObservation))
+
+    var activeReference = try KuyAtt1BaselineEnvironmentPolicy(
+        definition: definition,
+        gains: gains,
+        mode: .teacher
+    )
+    let activeReferenceDrives = try driveIntents(from: try await activeReference.action(for: referenceObservation))
+
+    #expect(activeLowDrives[0].activation > activeReferenceDrives[0].activation)
+    #expect(activeHighDrives[0].activation < activeReferenceDrives[0].activation)
+    #expect(Array(activeLowDrives.dropFirst()) == Array(activeReferenceDrives.dropFirst()))
+    #expect(Array(activeHighDrives.dropFirst()) == Array(activeReferenceDrives.dropFirst()))
+}
+
+@Test func kuyAtt1TeacherRunnerUsesOverrideDefinitions() async throws {
+    let definition = try makeShortAttitudeScenario()
+    let gains = try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2)
+    let runner = try KuyAtt1Runner.activeAltitudeHoldTeacher(gains: gains)
+
+    let output = try await runner.runWithLogs(definitions: [definition])
+
+    #expect(output.logs.count == 1)
+    #expect(output.logs.first?.key == ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed))
+    #expect(output.summary.manifest.count == 1)
+}
+
 private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDefinition {
     let timeStep = try TimeStep(delta: 0.001)
     let envelope = try SafetyEnvelope(
@@ -474,6 +526,19 @@ private func parameters(for kind: ReferenceQuadrotorScenarioKind) throws -> Refe
         gravity: ReferenceQuadrotorParameters.baseline.gravity,
         aerodynamics: ReferenceQuadrotorParameters.baseline.aerodynamics
     )
+}
+
+private func driveIntents(from action: EnvironmentAction) throws -> [DriveIntent] {
+    switch action {
+    case .driveIntents(let drives, _):
+        return drives
+    case .actuatorValues:
+        throw TestPolicyActionError.expectedDriveIntents
+    }
+}
+
+private enum TestPolicyActionError: Error {
+    case expectedDriveIntents
 }
 
 private func loadBundledRobot(_ relativePath: String) throws -> LoadedKuyuRobot {
