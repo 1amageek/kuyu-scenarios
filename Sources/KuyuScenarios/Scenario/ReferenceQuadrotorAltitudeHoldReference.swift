@@ -9,7 +9,7 @@ public enum ReferenceQuadrotorAltitudeHoldReferenceError: Error, Sendable, Equat
 
 public struct ReferenceQuadrotorAltitudeHoldReference: Sendable, Codable, Equatable {
     public static let attitudeTolerance = 0.2
-    public static let attitudeReferenceVerticalVelocity = 0.5
+    public static let attitudeReferenceVerticalVelocity = 0.05
 
     public let targetPosition: Axis3
     public let tolerance: Double

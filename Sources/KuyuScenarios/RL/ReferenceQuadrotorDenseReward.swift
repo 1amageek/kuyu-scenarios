@@ -39,12 +39,12 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
 
     public init(config: Config = Config()) {
         self.config = config
-        // version 3: attitude tasks without a lift envelope now receive dense
-        // altitude-hold reward around their initial height. The configHash is over
-        // the Config weights, so the version records this semantic change.
+        // version 4: attitude vertical-velocity reward scale now matches the strict
+        // A1 sustained-fall velocity envelope. The configHash is over the Config
+        // weights, so the version records this semantic change.
         self.descriptor = RewardDescriptor(
             id: "reference-quadrotor-dense",
-            version: "3",
+            version: "4",
             configHash: Self.configHash(config)
         )
     }

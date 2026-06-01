@@ -368,7 +368,7 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
     )
 
     #expect(definition.liftEnvelope == nil)
-    #expect(reward.descriptor.version == "3")
+    #expect(reward.descriptor.version == "4")
     #expect(lowReward < targetReward)
 }
 
@@ -393,6 +393,7 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
         attitudeReference.referenceVerticalVelocity
             == ReferenceQuadrotorAltitudeHoldReference.attitudeReferenceVerticalVelocity
     )
+    #expect(attitudeReference.referenceVerticalVelocity == attitude.safetyEnvelope.fallVelocityThreshold)
     #expect(liftReference.targetPosition.x == lift.initialPosition.x)
     #expect(liftReference.targetPosition.y == lift.initialPosition.y)
     #expect(liftReference.targetPosition.z == 2.5)
