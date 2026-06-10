@@ -67,11 +67,26 @@ public struct ParametricScenarioGenerator {
 
         return try (0..<levels).map { level in
             let fraction = Double(level + 1) / Double(levels)
-            let levelSpace = scaledParameterSpace(fraction: fraction)
+            let levelSpace = parameterSpace(scaledBy: fraction)
             let levelGenerator = ParametricScenarioGenerator(parameterSpace: levelSpace)
             let levelSeed = baseSeed &+ UInt64(level) &* 7919
             return try levelGenerator.generate(count: scenariosPerLevel, baseSeed: levelSeed)
         }
+    }
+
+    /// The parameter space a curriculum level samples from: each range keeps its
+    /// easy bound and expands toward the hard bound by `fraction`. Exposed so
+    /// curriculum consumers can report per-stage bounds without duplicating the
+    /// scaling rule.
+    public func parameterSpace(scaledBy fraction: Double) -> ParameterSpace {
+        ParameterSpace(
+            tiltRange: scale(parameterSpace.tiltRange, fraction: fraction),
+            torqueMagnitudeRange: scale(parameterSpace.torqueMagnitudeRange, fraction: fraction),
+            torqueDurationRange: scale(parameterSpace.torqueDurationRange, fraction: fraction),
+            degradationScaleRange: scaleInverse(parameterSpace.degradationScaleRange, fraction: fraction),
+            gyroDriftRange: scale(parameterSpace.gyroDriftRange, fraction: fraction),
+            durationRange: parameterSpace.durationRange
+        )
     }
 
     // MARK: - Private
@@ -148,17 +163,6 @@ public struct ParametricScenarioGenerator {
             gyroDriftScale: kind == .sensorDriftStress ? gyroDrift : 1.0,
             swapEvents: [],
             hfEvents: []
-        )
-    }
-
-    private func scaledParameterSpace(fraction: Double) -> ParameterSpace {
-        ParameterSpace(
-            tiltRange: scale(parameterSpace.tiltRange, fraction: fraction),
-            torqueMagnitudeRange: scale(parameterSpace.torqueMagnitudeRange, fraction: fraction),
-            torqueDurationRange: scale(parameterSpace.torqueDurationRange, fraction: fraction),
-            degradationScaleRange: scaleInverse(parameterSpace.degradationScaleRange, fraction: fraction),
-            gyroDriftRange: scale(parameterSpace.gyroDriftRange, fraction: fraction),
-            durationRange: parameterSpace.durationRange
         )
     }
 
