@@ -31,4 +31,7 @@ func activeTeacherPassesA1StressSuite(level: A1ConformanceSuite.Level) async thr
             "\(evaluation.scenarioId.rawValue) failed: \(evaluation.failures.joined(separator: ", "))"
         )
     }
+    #expect(output.result.replay.notPerformedReason == nil)
+    #expect(output.result.replay.checks.count == definitions.count)
+    #expect(output.result.replay.checks.allSatisfy { $0.passed })
 }

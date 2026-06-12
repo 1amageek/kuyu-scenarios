@@ -86,6 +86,20 @@ import KuyuPhysics
     #expect(output.logs.count == 1)
     #expect(output.logs.first?.key == ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed))
     #expect(output.summary.manifest.count == 1)
+    #expect(output.result.replay.notPerformedReason == nil)
+    #expect(output.result.replay.checks.count == 1)
+    #expect(output.result.replay.checks.allSatisfy { $0.passed })
+}
+
+@Test func kuyAtt1TeacherRunnerRecordsDisabledReplayExplicitly() async throws {
+    let definition = try makeShortAttitudeScenario()
+    let gains = try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2)
+    let runner = try KuyAtt1Runner.activeAltitudeHoldTeacher(gains: gains, replayVerification: false)
+
+    let output = try await runner.runWithLogs(definitions: [definition])
+
+    #expect(output.result.replay.notPerformedReason != nil)
+    #expect(output.result.replay.checks.isEmpty)
 }
 
 private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDefinition {

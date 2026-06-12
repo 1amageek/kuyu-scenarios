@@ -20,6 +20,11 @@ public struct KuyAtt1Runner {
     public var gains: ImuRateDampingCutGains
     public var baselineMode: KuyAtt1BaselineMode
     public var teacherConfig: PrivilegedAltitudeHoldTeacherConfig
+    /// When enabled, every scenario is re-run with a fresh controller and the
+    /// two logs are compared via `ReplayChecker`; the suite passes only if all
+    /// replay checks pass. Disable only where the duplicated rollout cost is
+    /// unjustified (interactive UI runs, training rollouts).
+    public var replayVerification: Bool
 
     public init(
         parameters: ReferenceQuadrotorParameters = .baseline,
@@ -30,7 +35,8 @@ public struct KuyAtt1Runner {
         environment: WorldEnvironment = .standard,
         gains: ImuRateDampingCutGains,
         baselineMode: KuyAtt1BaselineMode = .sensor,
-        teacherConfig: PrivilegedAltitudeHoldTeacherConfig = .activeAltitudeHold
+        teacherConfig: PrivilegedAltitudeHoldTeacherConfig = .activeAltitudeHold,
+        replayVerification: Bool = true
     ) {
         self.parameters = parameters
         self.mixer = mixer ?? ReferenceQuadrotorMixer(armLength: parameters.armLength, yawCoefficient: parameters.yawCoefficient)
@@ -41,13 +47,15 @@ public struct KuyAtt1Runner {
         self.gains = gains
         self.baselineMode = baselineMode
         self.teacherConfig = teacherConfig
+        self.replayVerification = replayVerification
     }
 
     public static func activeAltitudeHoldTeacher(
         gains: ImuRateDampingCutGains,
         noise: IMU6NoiseConfig = .zero,
         cutPeriodSteps: UInt64 = 2,
-        teacherConfig: PrivilegedAltitudeHoldTeacherConfig = .activeAltitudeHold
+        teacherConfig: PrivilegedAltitudeHoldTeacherConfig = .activeAltitudeHold,
+        replayVerification: Bool = true
     ) throws -> KuyAtt1Runner {
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
         return KuyAtt1Runner(
@@ -56,7 +64,8 @@ public struct KuyAtt1Runner {
             noise: noise,
             gains: gains,
             baselineMode: .teacher,
-            teacherConfig: teacherConfig
+            teacherConfig: teacherConfig,
+            replayVerification: replayVerification
         )
     }
 
@@ -68,6 +77,7 @@ public struct KuyAtt1Runner {
     ) async throws -> SuiteRunResult {
         if baselineMode == .teacher {
             return try await runActiveTeacherWithLogs(
+                referenceLogs: referenceLogs,
                 definitions: overrideDefinitions,
                 control: control,
                 telemetry: telemetry
@@ -75,6 +85,7 @@ public struct KuyAtt1Runner {
         }
         if let overrideDefinitions {
             return try await runSensorWithLogs(
+                referenceLogs: referenceLogs,
                 definitions: overrideDefinitions,
                 control: control,
                 telemetry: telemetry
@@ -110,6 +121,7 @@ public struct KuyAtt1Runner {
     ) async throws -> KuyAtt1RunOutput {
         if baselineMode == .teacher {
             return try await runActiveTeacherWithLogs(
+                referenceLogs: referenceLogs,
                 definitions: overrideDefinitions,
                 control: control,
                 telemetry: telemetry
@@ -117,6 +129,7 @@ public struct KuyAtt1Runner {
         }
         if let overrideDefinitions {
             return try await runSensorWithLogs(
+                referenceLogs: referenceLogs,
                 definitions: overrideDefinitions,
                 control: control,
                 telemetry: telemetry
@@ -155,13 +168,16 @@ public struct KuyAtt1Runner {
     }
 
     private func runActiveTeacherWithLogs(
+        referenceLogs: [ScenarioKey: SimulationLog] = [:],
         definitions overrideDefinitions: [ReferenceQuadrotorScenarioDefinition]? = nil,
         control: SimulationControl? = nil,
         telemetry: WorldStepTelemetry? = nil
     ) async throws -> KuyAtt1RunOutput {
         let definitions = try overrideDefinitions ?? KuyAtt1Suite().scenarios()
         let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)
+        let replayChecker = ReplayChecker()
         var evaluations: [ScenarioEvaluation] = []
+        var replayChecks: [ReplayCheckResult] = []
         var logs: [ScenarioLogEntry] = []
         evaluations.reserveCapacity(definitions.count)
         logs.reserveCapacity(definitions.count)
@@ -178,13 +194,24 @@ public struct KuyAtt1Runner {
             let key = ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed)
             logs.append(ScenarioLogEntry(key: key, log: log))
             evaluations.append(ReferenceQuadrotorScenarioEvaluator().evaluate(definition: definition, log: log))
+
+            if replayVerification {
+                if let reference = referenceLogs[key] {
+                    replayChecks.append(try replayChecker.check(reference: reference, candidate: log))
+                } else {
+                    // A fresh environment + policy is constructed per call, so a
+                    // second rollout is a valid deterministic replay candidate.
+                    let replayLog = try await runActiveTeacherScenario(
+                        definition: definition,
+                        control: control,
+                        telemetry: nil
+                    )
+                    replayChecks.append(try replayChecker.check(reference: log, candidate: replayLog))
+                }
+            }
         }
 
-        let result = SuiteRunResult(
-            evaluations: evaluations,
-            replay: .notPerformed(reason: "Active-teacher rollouts do not execute replay verification."),
-            passed: evaluations.allSatisfy { $0.passed }
-        )
+        let result = makeSuiteRunResult(evaluations: evaluations, replayChecks: replayChecks)
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
@@ -197,6 +224,7 @@ public struct KuyAtt1Runner {
     }
 
     private func runSensorWithLogs(
+        referenceLogs: [ScenarioKey: SimulationLog] = [:],
         definitions: [ReferenceQuadrotorScenarioDefinition],
         control: SimulationControl? = nil,
         telemetry: WorldStepTelemetry? = nil
@@ -211,7 +239,9 @@ public struct KuyAtt1Runner {
             hoverThrustScale: gains.hoverThrustScale
         )
         let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)
+        let replayChecker = ReplayChecker()
         var evaluations: [ScenarioEvaluation] = []
+        var replayChecks: [ReplayCheckResult] = []
         var logs: [ScenarioLogEntry] = []
         evaluations.reserveCapacity(definitions.count)
         logs.reserveCapacity(definitions.count)
@@ -230,13 +260,21 @@ public struct KuyAtt1Runner {
             let key = ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed)
             logs.append(ScenarioLogEntry(key: key, log: log))
             evaluations.append(ReferenceQuadrotorScenarioEvaluator().evaluate(definition: definition, log: log))
+
+            if replayVerification {
+                replayChecks.append(try await validateScenarioReplay(
+                    runner: runner,
+                    replayChecker: replayChecker,
+                    definition: definition,
+                    primaryLog: log,
+                    cutFactory: { definition in try makeDriveCut(definition: definition) },
+                    motorNerveFactory: { _ in try makeMotorNerve() },
+                    referenceLogs: referenceLogs
+                ))
+            }
         }
 
-        let result = SuiteRunResult(
-            evaluations: evaluations,
-            replay: .notPerformed(reason: "Sensor runs with override definitions do not execute replay verification."),
-            passed: evaluations.allSatisfy { $0.passed }
-        )
+        let result = makeSuiteRunResult(evaluations: evaluations, replayChecks: replayChecks)
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
@@ -246,6 +284,26 @@ public struct KuyAtt1Runner {
             aggregate: aggregate
         )
         return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
+    }
+
+    private func makeSuiteRunResult(
+        evaluations: [ScenarioEvaluation],
+        replayChecks: [ReplayCheckResult]
+    ) -> SuiteRunResult {
+        let evaluationPass = evaluations.allSatisfy { $0.passed }
+        guard replayVerification else {
+            return SuiteRunResult(
+                evaluations: evaluations,
+                replay: .notPerformed(reason: "Replay verification is disabled by runner configuration."),
+                passed: evaluationPass
+            )
+        }
+        let replayPass = replayChecks.allSatisfy { $0.passed }
+        return SuiteRunResult(
+            evaluations: evaluations,
+            replay: .performed(replayChecks),
+            passed: evaluationPass && replayPass
+        )
     }
 
     private func runActiveTeacherScenario(
