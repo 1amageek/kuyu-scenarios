@@ -146,7 +146,7 @@ public struct KuyAtt1Runner {
         let summary = ValidationSummary(
             suitePassed: output.result.passed,
             evaluations: output.result.evaluations,
-            replayChecks: output.result.replayChecks,
+            replay: output.result.replay,
             manifest: output.manifest,
             aggregate: aggregate
         )
@@ -182,14 +182,14 @@ public struct KuyAtt1Runner {
 
         let result = SuiteRunResult(
             evaluations: evaluations,
-            replayChecks: [],
+            replay: .notPerformed(reason: "Active-teacher rollouts do not execute replay verification."),
             passed: evaluations.allSatisfy { $0.passed }
         )
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
             evaluations: result.evaluations,
-            replayChecks: result.replayChecks,
+            replay: result.replay,
             manifest: manifest,
             aggregate: aggregate
         )
@@ -234,14 +234,14 @@ public struct KuyAtt1Runner {
 
         let result = SuiteRunResult(
             evaluations: evaluations,
-            replayChecks: [],
+            replay: .notPerformed(reason: "Sensor runs with override definitions do not execute replay verification."),
             passed: evaluations.allSatisfy { $0.passed }
         )
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
             evaluations: result.evaluations,
-            replayChecks: result.replayChecks,
+            replay: result.replay,
             manifest: manifest,
             aggregate: aggregate
         )

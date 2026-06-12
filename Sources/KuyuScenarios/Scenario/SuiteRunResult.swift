@@ -3,16 +3,16 @@ import KuyuPhysics
 
 public struct SuiteRunResult: Sendable, Codable, Equatable {
     public let evaluations: [ScenarioEvaluation]
-    public let replayChecks: [ReplayCheckResult]
+    public let replay: ReplayVerification
     public let passed: Bool
 
     public init(
         evaluations: [ScenarioEvaluation],
-        replayChecks: [ReplayCheckResult],
+        replay: ReplayVerification,
         passed: Bool
     ) {
         self.evaluations = evaluations
-        self.replayChecks = replayChecks
+        self.replay = replay
         self.passed = passed
     }
 }

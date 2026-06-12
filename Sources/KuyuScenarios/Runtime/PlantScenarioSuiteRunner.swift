@@ -62,7 +62,7 @@ public struct PlantScenarioSuiteRunner<Runner: PlantScenarioRunner, Evaluator: S
 
         return SuiteRunResult(
             evaluations: evaluations,
-            replayChecks: replayChecks,
+            replay: .performed(replayChecks),
             passed: passed
         )
     }

@@ -36,13 +36,14 @@ public struct EvaluationAggregate: Sendable, Codable, Equatable {
 public struct ValidationSummary: Sendable, Codable, Equatable {
     public let suitePassed: Bool
     public let evaluations: [ScenarioEvaluation]
-    public let replayChecks: [ReplayCheckResult]
+    public let replay: ReplayVerification
     public let manifest: [ReferenceQuadrotorScenarioManifest]
     public let aggregate: EvaluationAggregate
 
     private enum CodingKeys: String, CodingKey {
         case suitePassed
         case evaluations
+        case replay
         case replayChecks
         case manifest
         case aggregate
@@ -51,13 +52,13 @@ public struct ValidationSummary: Sendable, Codable, Equatable {
     public init(
         suitePassed: Bool,
         evaluations: [ScenarioEvaluation],
-        replayChecks: [ReplayCheckResult],
+        replay: ReplayVerification,
         manifest: [ReferenceQuadrotorScenarioManifest],
         aggregate: EvaluationAggregate
     ) {
         self.suitePassed = suitePassed
         self.evaluations = evaluations
-        self.replayChecks = replayChecks
+        self.replay = replay
         self.manifest = manifest
         self.aggregate = aggregate
     }
@@ -66,7 +67,16 @@ public struct ValidationSummary: Sendable, Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         suitePassed = try container.decode(Bool.self, forKey: .suitePassed)
         evaluations = try container.decode([ScenarioEvaluation].self, forKey: .evaluations)
-        replayChecks = try container.decode([ReplayCheckResult].self, forKey: .replayChecks)
+        if let verification = try container.decodeIfPresent(ReplayVerification.self, forKey: .replay) {
+            replay = verification
+        } else {
+            // Legacy summaries stored a bare check array, where an empty
+            // array was ambiguous between "all passed" and "never ran".
+            let legacyChecks = try container.decode([ReplayCheckResult].self, forKey: .replayChecks)
+            replay = legacyChecks.isEmpty
+                ? .notPerformed(reason: "Legacy summary recorded no replay checks.")
+                : .performed(legacyChecks)
+        }
         manifest = try container.decode([ReferenceQuadrotorScenarioManifest].self, forKey: .manifest)
         aggregate = try container.decodeIfPresent(EvaluationAggregate.self, forKey: .aggregate)
             ?? EvaluationAggregate.from(evaluations: evaluations)
@@ -76,7 +86,7 @@ public struct ValidationSummary: Sendable, Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(suitePassed, forKey: .suitePassed)
         try container.encode(evaluations, forKey: .evaluations)
-        try container.encode(replayChecks, forKey: .replayChecks)
+        try container.encode(replay, forKey: .replay)
         try container.encode(manifest, forKey: .manifest)
         try container.encode(aggregate, forKey: .aggregate)
     }

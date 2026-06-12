@@ -26,7 +26,7 @@ public struct KuyAtt1LogWriter {
         try store.write(output.summary, to: summaryURL)
         try store.write(output.summary.manifest, to: manifestURL)
         try store.write(output.summary.evaluations, to: evaluationsURL)
-        try store.write(output.summary.replayChecks, to: replayURL)
+        try store.write(output.summary.replay, to: replayURL)
 
         var logIndex: [ScenarioLogIndex] = []
         for entry in output.logs {
@@ -42,7 +42,7 @@ public struct KuyAtt1LogWriter {
             summary: output.summary,
             manifest: output.summary.manifest,
             evaluations: output.summary.evaluations,
-            replayChecks: output.summary.replayChecks,
+            replay: output.summary.replay,
             logs: logIndex.sorted { $0.fileName < $1.fileName }
         )
         let bundleURL = directory.appendingPathComponent("bundle.json")

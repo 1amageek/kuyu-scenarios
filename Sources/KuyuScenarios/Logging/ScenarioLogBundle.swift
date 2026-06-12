@@ -5,20 +5,20 @@ public struct ScenarioLogBundle: Sendable, Codable, Equatable {
     public let summary: ValidationSummary
     public let manifest: [ReferenceQuadrotorScenarioManifest]
     public let evaluations: [ScenarioEvaluation]
-    public let replayChecks: [ReplayCheckResult]
+    public let replay: ReplayVerification
     public let logs: [ScenarioLogIndex]
 
     public init(
         summary: ValidationSummary,
         manifest: [ReferenceQuadrotorScenarioManifest],
         evaluations: [ScenarioEvaluation],
-        replayChecks: [ReplayCheckResult],
+        replay: ReplayVerification,
         logs: [ScenarioLogIndex]
     ) {
         self.summary = summary
         self.manifest = manifest
         self.evaluations = evaluations
-        self.replayChecks = replayChecks
+        self.replay = replay
         self.logs = logs
     }
 }

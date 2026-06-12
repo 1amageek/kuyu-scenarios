@@ -77,7 +77,7 @@ public struct KuyAtt1Validation<Cut: CutInterface & Sendable, Nerve: MotorNerveE
 
         let evaluationPass = evaluations.allSatisfy { $0.passed }
         let replayPass = replayChecks.allSatisfy { $0.passed }
-        let result = SuiteRunResult(evaluations: evaluations, replayChecks: replayChecks, passed: evaluationPass && replayPass)
+        let result = SuiteRunResult(evaluations: evaluations, replay: .performed(replayChecks), passed: evaluationPass && replayPass)
         return (result, logs, manifest)
     }
 }
