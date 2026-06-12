@@ -15,3 +15,7 @@ Package.resolved
 
 # Credentials
 .netrc
+
+# Local DerivedData used by scripts/test.sh
+.xcode/
+*.profraw
