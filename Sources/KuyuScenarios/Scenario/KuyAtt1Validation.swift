@@ -2,12 +2,15 @@ import KuyuCore
 import KuyuPhysics
 
 public struct KuyAtt1Validation<Cut: CutInterface & Sendable, Nerve: MotorNerveEndpoint> {
-    public var suite: KuyAtt1Suite
+    public var suite: any ReferenceQuadrotorScenarioSuite
     public var runner: ReferenceQuadrotorScenarioRunner<Cut, Nerve>
     public var suiteRunner: ReferenceQuadrotorScenarioSuiteRunner<Cut, Nerve>
 
-    public init(runner: ReferenceQuadrotorScenarioRunner<Cut, Nerve>) {
-        self.suite = KuyAtt1Suite()
+    public init(
+        runner: ReferenceQuadrotorScenarioRunner<Cut, Nerve>,
+        suite: any ReferenceQuadrotorScenarioSuite = KuyAtt1Suite()
+    ) {
+        self.suite = suite
         self.runner = runner
         self.suiteRunner = ReferenceQuadrotorScenarioSuiteRunner(runner: runner, evaluator: ReferenceQuadrotorScenarioEvaluator())
     }
