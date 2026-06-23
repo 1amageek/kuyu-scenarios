@@ -26,6 +26,8 @@ their target state, safety rules, reward meaning, or pass/fail semantics.
   duplicated fallbacks in backend packages.
 - Reward changes must bump `RewardDescriptor.version` when behavior changes
   without a config-weight change.
+- `ScenarioTerminalFacts` must validate terminal state consistency before the
+  facts are persisted by downstream dataset or artifact writers.
 - Attitude scenarios without a `LiftEnvelope` still own an altitude-hold
   reference: the initial z position is the hover target, with the package-level
   tolerance and velocity reference exposed through
