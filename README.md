@@ -28,6 +28,9 @@ their target state, safety rules, reward meaning, or pass/fail semantics.
   without a config-weight change.
 - `ScenarioTerminalFacts` must validate terminal state consistency before the
   facts are persisted by downstream dataset or artifact writers.
+- Reference-quadrotor suite IDs must resolve through
+  `ReferenceQuadrotorScenarioCatalog`; backend and training packages must not
+  keep independent suite-ID-to-scenario semantics.
 - Attitude scenarios without a `LiftEnvelope` still own an altitude-hold
   reference: the initial z position is the hover target, with the package-level
   tolerance and velocity reference exposed through
@@ -39,6 +42,7 @@ their target state, safety rules, reward meaning, or pass/fail semantics.
 
 - **KuyAtt1Suite** — Attitude stabilization scenarios (hover, step response, disturbance rejection).
 - **KuyLiftSuite** / **KuySingleLiftSuite** — Lift control scenarios for single-propeller platforms.
+- **ReferenceQuadrotorScenarioCatalog** — Canonical task/suite resolver for runnable starter and regression scenario selection.
 - **ParametricScenarioGenerator** — Generates scenario variants by sweeping parameters.
 
 ### Runtime
