@@ -31,6 +31,9 @@ their target state, safety rules, reward meaning, or pass/fail semantics.
 - Reference-quadrotor suite IDs must resolve through
   `ReferenceQuadrotorScenarioCatalog`; backend and training packages must not
   keep independent suite-ID-to-scenario semantics.
+- Baseline reference-quadrotor starter execution must use
+  `ReferenceQuadrotorBaselineReplayRuntime` so attitude, lift, and single-lift
+  tasks all record deterministic replay evidence.
 - Attitude scenarios without a `LiftEnvelope` still own an altitude-hold
   reference: the initial z position is the hover target, with the package-level
   tolerance and velocity reference exposed through
@@ -49,6 +52,7 @@ their target state, safety rules, reward meaning, or pass/fail semantics.
 
 - **`PlantScenarioRunner`** — Executes a single scenario with a given controller and produces logs.
 - **`PlantScenarioSuiteRunner`** — Runs a full suite of scenarios and aggregates results.
+- **`ReferenceQuadrotorBaselineReplayRuntime`** — Executes baseline reference-quadrotor attitude/lift/single-lift suites with replay verification enabled.
 - **`ScenarioRunner`** — Sequential execution of independent scenarios.
 - **`DescendingIntentProgram`** — Time-varying descending channel commands (keyframe interpolation).
 
