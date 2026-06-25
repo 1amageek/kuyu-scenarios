@@ -300,7 +300,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
                 time: time,
                 sensorSamples: samples,
                 plantState: quad.plant.snapshot(),
-                safetyTrace: quad.plant.safetyTrace(),
+                safetyTrace: try quad.plant.safetyTrace(),
                 actuatorTelemetry: quad.actuator.telemetrySnapshot(),
                 disturbances: quad.disturbance.snapshot()
             )
@@ -311,7 +311,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
                 time: time,
                 sensorSamples: samples,
                 plantState: lift.plant.snapshot(),
-                safetyTrace: lift.plant.safetyTrace(),
+                safetyTrace: try lift.plant.safetyTrace(),
                 actuatorTelemetry: lift.actuator.telemetrySnapshot(),
                 disturbances: lift.disturbance.snapshot()
             )
@@ -322,7 +322,7 @@ public struct ReferenceQuadrotorRLEnvironment: KuyuEnvironment {
                 time: time,
                 sensorSamples: samples,
                 plantState: single.plant.snapshot(),
-                safetyTrace: single.plant.safetyTrace(),
+                safetyTrace: try single.plant.safetyTrace(),
                 actuatorTelemetry: single.actuator.telemetrySnapshot(),
                 disturbances: single.disturbance.snapshot()
             )
