@@ -41,6 +41,10 @@ their target state, safety rules, reward meaning, or pass/fail semantics.
 - Backends such as `kuyu-mlx` must consume these scenario references instead of
   hard-coding fallback target heights.
 
+Package-local reliability milestones are defined in
+`RELIABILITY_MILESTONES.md`, and package-local verification evidence is recorded
+in `RELIABILITY_EVIDENCE.md`.
+
 ### Evaluation Suites
 
 - **KuyAtt1Suite** — Attitude stabilization scenarios (hover, step response, disturbance rejection).
