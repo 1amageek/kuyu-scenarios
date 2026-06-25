@@ -34,9 +34,9 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
         self.hoverThrustScale = hoverThrustScale
     }
 
-    public func runScenario(
+    nonisolated(nonsending) public func runScenario(
         definition: ReferenceQuadrotorScenarioDefinition,
-        cut: sending Cut,
+        cut: Cut,
         motorNerve: Nerve? = nil,
         control: SimulationControl? = nil,
         telemetry: WorldStepTelemetry? = nil

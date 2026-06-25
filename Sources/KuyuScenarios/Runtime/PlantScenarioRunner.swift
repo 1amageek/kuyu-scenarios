@@ -6,9 +6,9 @@ public protocol PlantScenarioRunner {
     associatedtype Cut: CutInterface
     associatedtype Nerve: MotorNerveEndpoint
 
-    func runScenario(
+    nonisolated(nonsending) func runScenario(
         definition: Scenario,
-        cut: sending Cut,
+        cut: Cut,
         motorNerve: Nerve?,
         control: SimulationControl?,
         telemetry: WorldStepTelemetry?
