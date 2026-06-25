@@ -56,14 +56,9 @@ public struct PlantScenarioSuiteRunner<Runner: PlantScenarioRunner, Evaluator: S
             replayChecks.append(replay)
         }
 
-        let evaluationPass = evaluations.allSatisfy { $0.passed }
-        let replayPass = replayChecks.allSatisfy { $0.passed }
-        let passed = evaluationPass && replayPass
-
-        return SuiteRunResult(
+        return SuiteRunResultFactory().makeReplayVerified(
             evaluations: evaluations,
-            replay: .performed(replayChecks),
-            passed: passed
+            replayChecks: replayChecks
         )
     }
 }

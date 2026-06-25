@@ -211,7 +211,12 @@ public struct KuyAtt1Runner {
             }
         }
 
-        let result = makeSuiteRunResult(evaluations: evaluations, replayChecks: replayChecks)
+        let result = SuiteRunResultFactory().makeConfigured(
+            evaluations: evaluations,
+            replayChecks: replayChecks,
+            replayVerificationEnabled: replayVerification,
+            replaySkippedReason: "Replay verification is disabled by runner configuration."
+        )
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
@@ -274,7 +279,12 @@ public struct KuyAtt1Runner {
             }
         }
 
-        let result = makeSuiteRunResult(evaluations: evaluations, replayChecks: replayChecks)
+        let result = SuiteRunResultFactory().makeConfigured(
+            evaluations: evaluations,
+            replayChecks: replayChecks,
+            replayVerificationEnabled: replayVerification,
+            replaySkippedReason: "Replay verification is disabled by runner configuration."
+        )
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
@@ -284,26 +294,6 @@ public struct KuyAtt1Runner {
             aggregate: aggregate
         )
         return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
-    }
-
-    private func makeSuiteRunResult(
-        evaluations: [ScenarioEvaluation],
-        replayChecks: [ReplayCheckResult]
-    ) -> SuiteRunResult {
-        let evaluationPass = evaluations.allSatisfy { $0.passed }
-        guard replayVerification else {
-            return SuiteRunResult(
-                evaluations: evaluations,
-                replay: .notPerformed(reason: "Replay verification is disabled by runner configuration."),
-                passed: evaluationPass
-            )
-        }
-        let replayPass = replayChecks.allSatisfy { $0.passed }
-        return SuiteRunResult(
-            evaluations: evaluations,
-            replay: .performed(replayChecks),
-            passed: evaluationPass && replayPass
-        )
     }
 
     private func runActiveTeacherScenario(
