@@ -12,18 +12,11 @@ public struct ArticulatedDynamicScenarioOutputFactory: Sendable {
             evaluations: [evaluation],
             replaySkippedReason: Self.replaySkippedReason
         )
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: [makeManifest(log: log)],
-            aggregate: EvaluationAggregate.from(evaluations: result.evaluations)
-        )
         let key = ScenarioKey(scenarioId: log.scenarioId, seed: log.seed)
-        return KuyAtt1RunOutput(
+        return KuyAtt1RunOutputFactory().makeOutput(
             result: result,
-            summary: summary,
-            logs: [ScenarioLogEntry(key: key, log: log)]
+            logs: [ScenarioLogEntry(key: key, log: log)],
+            manifest: [makeManifest(log: log)]
         )
     }
 

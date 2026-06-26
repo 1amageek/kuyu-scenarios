@@ -183,15 +183,11 @@ public struct ReferenceQuadrotorBaselineReplayRuntime: Sendable {
         logs: [ScenarioLogEntry],
         manifest: [ReferenceQuadrotorScenarioManifest]
     ) -> KuyAtt1RunOutput {
-        let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: manifest,
-            aggregate: aggregate
+        KuyAtt1RunOutputFactory().makeOutput(
+            result: result,
+            logs: logs,
+            manifest: manifest
         )
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
     }
 }
 

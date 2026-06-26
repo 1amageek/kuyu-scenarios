@@ -155,16 +155,11 @@ public struct KuyAtt1Runner {
             telemetry: telemetry
         )
 
-        let aggregate = EvaluationAggregate.from(evaluations: output.result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: output.result.passed,
-            evaluations: output.result.evaluations,
-            replay: output.result.replay,
-            manifest: output.manifest,
-            aggregate: aggregate
+        return KuyAtt1RunOutputFactory().makeOutput(
+            result: output.result,
+            logs: output.logs,
+            manifest: output.manifest
         )
-
-        return KuyAtt1RunOutput(result: output.result, summary: summary, logs: output.logs)
     }
 
     private func runActiveTeacherWithLogs(
@@ -217,15 +212,11 @@ public struct KuyAtt1Runner {
             replayVerificationEnabled: replayVerification,
             replaySkippedReason: "Replay verification is disabled by runner configuration."
         )
-        let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: manifest,
-            aggregate: aggregate
+        return KuyAtt1RunOutputFactory().makeOutput(
+            result: result,
+            logs: logs,
+            manifest: manifest
         )
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
     }
 
     private func runSensorWithLogs(
@@ -285,15 +276,11 @@ public struct KuyAtt1Runner {
             replayVerificationEnabled: replayVerification,
             replaySkippedReason: "Replay verification is disabled by runner configuration."
         )
-        let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: manifest,
-            aggregate: aggregate
+        return KuyAtt1RunOutputFactory().makeOutput(
+            result: result,
+            logs: logs,
+            manifest: manifest
         )
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
     }
 
     private func runActiveTeacherScenario(
