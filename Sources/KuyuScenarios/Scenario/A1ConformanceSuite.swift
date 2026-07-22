@@ -58,20 +58,28 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
             : 1
     }
 
-    private var severityPercent: Int {
-        Int((stressSeverity * 100).rounded())
+    /// ADR-style deterministic range coverage: below full severity, the
+    /// suite's scenarios are graded across (0, stressSeverity] so the
+    /// boundary severity is always included and near-clean behavior stays in
+    /// distribution. At full severity every scenario keeps the declared A1
+    /// stress (historical behavior).
+    private func scenarioSeverity(index: Int) -> Double {
+        guard stressSeverity < 1 else { return 1 }
+        let count = max(1, seeds.count)
+        return stressSeverity * Double(index + 1) / Double(count)
     }
 
-    private var suiteSegment: String {
-        severityPercent == 100 ? level.suiteID : "\(level.suiteID)-SEV\(severityPercent)"
+    private func suiteSegment(forScenarioSeverity severity: Double) -> String {
+        let percent = Int((severity * 100).rounded())
+        return percent == 100 ? level.suiteID : "\(level.suiteID)-SEV\(percent)"
     }
 
-    private func severityScale(_ target: Double) -> Double {
-        1 + stressSeverity * (target - 1)
+    private func severityScale(_ target: Double, severity: Double) -> Double {
+        1 + severity * (target - 1)
     }
 
-    private func severityShift(_ target: Double) -> Double {
-        stressSeverity * target
+    private func severityShift(_ target: Double, severity: Double) -> Double {
+        severity * target
     }
 
     public func scenarios() throws -> [ReferenceQuadrotorScenarioDefinition] {
@@ -89,13 +97,16 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
         var results: [ReferenceQuadrotorScenarioDefinition] = []
         results.reserveCapacity(seeds.count)
         for (index, seed) in seeds.enumerated() {
+            let scenarioSeverity = scenarioSeverity(index: index)
             let config = try ScenarioConfig(
-                id: try ScenarioID("KUY-A1/\(suiteSegment)/SCN-\(index + 1)"),
+                id: try ScenarioID(
+                    "KUY-A1/\(suiteSegment(forScenarioSeverity: scenarioSeverity))/SCN-\(index + 1)"
+                ),
                 seed: ScenarioSeed(seed),
                 duration: duration,
                 timeStep: timeStep
             )
-            let injection = try makeInjection(for: level)
+            let injection = try makeInjection(for: level, severity: scenarioSeverity)
             results.append(ReferenceQuadrotorScenarioDefinition(
                 config: config,
                 kind: .hoverStart,
@@ -120,14 +131,14 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
         var gyroDriftScale: Double = 1.0
     }
 
-    private func makeInjection(for level: Level) throws -> Injection {
+    private func makeInjection(for level: Level, severity: Double) throws -> Injection {
         switch level {
         case .warmup:
             return Injection()
         case .sensorSwappability:
             return Injection(swapEvents: try sensorSwaps())
         case .actuatorSwappability:
-            return Injection(swapEvents: try actuatorSwaps())
+            return Injection(swapEvents: try actuatorSwaps(severity: severity))
         case .reflexHF:
             var injection = Injection(hfEvents: try hfStress())
             injection.gyroDriftScale = 1.5
@@ -135,14 +146,14 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
         case .bundleGatingStress:
             return Injection(swapEvents: try gatingShocks())
         case .combined:
-            return try combinedInjection()
+            return try combinedInjection(severity: severity)
         }
     }
 
     /// Combined stress runs a representative subset of every stressor *concurrently*
     /// within the run window (combined = simultaneous, not sequential), so the layers
     /// interact rather than recover one-at-a-time.
-    private func combinedInjection() throws -> Injection {
+    private func combinedInjection(severity: Double) throws -> Injection {
         let swaps: [SwapEvent] = [
             .sensor(try SensorSwapEvent(
                 kind: .calibShift,
@@ -161,12 +172,12 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
                 startTime: 6.0,
                 duration: 4.0,
                 motorIndex: 2,
-                gainScale: severityScale(0.9),
-                lagScale: severityScale(1.0),
-                maxOutputScale: severityScale(1.0),
-                deadzoneShift: severityShift(0.0),
-                rateLimitScale: severityScale(0.25),
-                asymmetryScale: severityScale(0.5)
+                gainScale: severityScale(0.9, severity: severity),
+                lagScale: severityScale(1.0, severity: severity),
+                maxOutputScale: severityScale(1.0, severity: severity),
+                deadzoneShift: severityShift(0.0, severity: severity),
+                rateLimitScale: severityScale(0.25, severity: severity),
+                asymmetryScale: severityScale(0.5, severity: severity)
             )),
             .sensor(try SensorSwapEvent(
                 kind: .swapUnit,
@@ -233,39 +244,39 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
 
     // MARK: - Suite-2: actuator swaps covering maxOutput/lag/gain/deadzone/rateLimit/asymmetry
 
-    private func actuatorSwaps(startBase: Double = 5.0) throws -> [SwapEvent] {
+    private func actuatorSwaps(startBase: Double = 5.0, severity: Double) throws -> [SwapEvent] {
         return [
             .actuator(try ActuatorSwapEvent(
                 kind: .maxOutputShift,
                 startTime: startBase,
                 duration: 4.0,
                 motorIndex: 0,
-                gainScale: severityScale(1.0),
-                lagScale: severityScale(1.5),
-                maxOutputScale: severityScale(0.75),
-                deadzoneShift: severityShift(0.0)
+                gainScale: severityScale(1.0, severity: severity),
+                lagScale: severityScale(1.5, severity: severity),
+                maxOutputScale: severityScale(0.75, severity: severity),
+                deadzoneShift: severityShift(0.0, severity: severity)
             )),
             .actuator(try ActuatorSwapEvent(
                 kind: .gainShift,
                 startTime: startBase + 5.0,
                 duration: 4.0,
                 motorIndex: 1,
-                gainScale: severityScale(0.8),
-                lagScale: severityScale(1.0),
-                maxOutputScale: severityScale(1.0),
-                deadzoneShift: severityShift(0.05)
+                gainScale: severityScale(0.8, severity: severity),
+                lagScale: severityScale(1.0, severity: severity),
+                maxOutputScale: severityScale(1.0, severity: severity),
+                deadzoneShift: severityShift(0.05, severity: severity)
             )),
             .actuator(try ActuatorSwapEvent(
                 kind: .rateLimitShift,
                 startTime: startBase + 9.0,
                 duration: 3.0,
                 motorIndex: 2,
-                gainScale: severityScale(1.0),
-                lagScale: severityScale(1.0),
-                maxOutputScale: severityScale(1.0),
-                deadzoneShift: severityShift(0.0),
-                rateLimitScale: severityScale(0.20),
-                asymmetryScale: severityScale(0.5)
+                gainScale: severityScale(1.0, severity: severity),
+                lagScale: severityScale(1.0, severity: severity),
+                maxOutputScale: severityScale(1.0, severity: severity),
+                deadzoneShift: severityShift(0.0, severity: severity),
+                rateLimitScale: severityScale(0.20, severity: severity),
+                asymmetryScale: severityScale(0.5, severity: severity)
             )),
         ]
     }
