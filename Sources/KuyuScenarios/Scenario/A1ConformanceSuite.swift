@@ -37,11 +37,41 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
     public let level: Level
     public let seeds: [UInt64]
     public let duration: Double
+    /// Actuator-swap severity in 0...1. 1 keeps the declared A1 stress; lower
+    /// values interpolate every actuator-swap parameter toward identity so a
+    /// capability curriculum can climb toward full severity. Sensor, HF, and
+    /// torque stress are not scaled. Severities below 1 are stamped into the
+    /// scenario ID so evidence at different severities is never conflated.
+    public let stressSeverity: Double
 
-    public init(level: Level, seeds: [UInt64] = [2001, 2002, 2003], duration: Double = 20.0) {
+    public init(
+        level: Level,
+        seeds: [UInt64] = [2001, 2002, 2003],
+        duration: Double = 20.0,
+        stressSeverity: Double = 1.0
+    ) {
         self.level = level
         self.seeds = seeds
         self.duration = duration
+        self.stressSeverity = stressSeverity.isFinite
+            ? min(1, max(0, stressSeverity))
+            : 1
+    }
+
+    private var severityPercent: Int {
+        Int((stressSeverity * 100).rounded())
+    }
+
+    private var suiteSegment: String {
+        severityPercent == 100 ? level.suiteID : "\(level.suiteID)-SEV\(severityPercent)"
+    }
+
+    private func severityScale(_ target: Double) -> Double {
+        1 + stressSeverity * (target - 1)
+    }
+
+    private func severityShift(_ target: Double) -> Double {
+        stressSeverity * target
     }
 
     public func scenarios() throws -> [ReferenceQuadrotorScenarioDefinition] {
@@ -60,7 +90,7 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
         results.reserveCapacity(seeds.count)
         for (index, seed) in seeds.enumerated() {
             let config = try ScenarioConfig(
-                id: try ScenarioID("KUY-A1/\(level.suiteID)/SCN-\(index + 1)"),
+                id: try ScenarioID("KUY-A1/\(suiteSegment)/SCN-\(index + 1)"),
                 seed: ScenarioSeed(seed),
                 duration: duration,
                 timeStep: timeStep
@@ -131,12 +161,12 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
                 startTime: 6.0,
                 duration: 4.0,
                 motorIndex: 2,
-                gainScale: 0.9,
-                lagScale: 1.0,
-                maxOutputScale: 1.0,
-                deadzoneShift: 0.0,
-                rateLimitScale: 0.25,
-                asymmetryScale: 0.5
+                gainScale: severityScale(0.9),
+                lagScale: severityScale(1.0),
+                maxOutputScale: severityScale(1.0),
+                deadzoneShift: severityShift(0.0),
+                rateLimitScale: severityScale(0.25),
+                asymmetryScale: severityScale(0.5)
             )),
             .sensor(try SensorSwapEvent(
                 kind: .swapUnit,
@@ -210,32 +240,32 @@ public struct A1ConformanceSuite: ReferenceQuadrotorScenarioSuite {
                 startTime: startBase,
                 duration: 4.0,
                 motorIndex: 0,
-                gainScale: 1.0,
-                lagScale: 1.5,
-                maxOutputScale: 0.75,
-                deadzoneShift: 0.0
+                gainScale: severityScale(1.0),
+                lagScale: severityScale(1.5),
+                maxOutputScale: severityScale(0.75),
+                deadzoneShift: severityShift(0.0)
             )),
             .actuator(try ActuatorSwapEvent(
                 kind: .gainShift,
                 startTime: startBase + 5.0,
                 duration: 4.0,
                 motorIndex: 1,
-                gainScale: 0.8,
-                lagScale: 1.0,
-                maxOutputScale: 1.0,
-                deadzoneShift: 0.05
+                gainScale: severityScale(0.8),
+                lagScale: severityScale(1.0),
+                maxOutputScale: severityScale(1.0),
+                deadzoneShift: severityShift(0.05)
             )),
             .actuator(try ActuatorSwapEvent(
                 kind: .rateLimitShift,
                 startTime: startBase + 9.0,
                 duration: 3.0,
                 motorIndex: 2,
-                gainScale: 1.0,
-                lagScale: 1.0,
-                maxOutputScale: 1.0,
-                deadzoneShift: 0.0,
-                rateLimitScale: 0.20,
-                asymmetryScale: 0.5
+                gainScale: severityScale(1.0),
+                lagScale: severityScale(1.0),
+                maxOutputScale: severityScale(1.0),
+                deadzoneShift: severityShift(0.0),
+                rateLimitScale: severityScale(0.20),
+                asymmetryScale: severityScale(0.5)
             )),
         ]
     }

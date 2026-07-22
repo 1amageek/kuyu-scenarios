@@ -13,7 +13,8 @@ public enum ReferenceQuadrotorScenarioCatalog {
     public static func scenarios(
         for task: SimulationTaskMode,
         suite: Int,
-        episodeCount: Int
+        episodeCount: Int,
+        stressSeverity: Double = 1.0
     ) throws -> [ReferenceQuadrotorScenarioDefinition] {
         guard episodeCount > 0 else {
             throw ResolutionError.invalidEpisodeCount(episodeCount)
@@ -25,7 +26,8 @@ public enum ReferenceQuadrotorScenarioCatalog {
             if let level = A1ConformanceSuite.Level(rawValue: suite) {
                 return try A1ConformanceSuite(
                     level: level,
-                    seeds: a1ConformanceSeeds(suite: suite, episodeCount: episodeCount)
+                    seeds: a1ConformanceSeeds(suite: suite, episodeCount: episodeCount),
+                    stressSeverity: stressSeverity
                 ).scenarios()
             }
             return try longHorizonScenarios(suite: suite, episodeCount: episodeCount)
