@@ -36,7 +36,7 @@ public struct KuyAtt1Demo {
         return output.summary
     }
 
-    public func runBaselineAndWriteLogs(to directory: URL) async throws -> ScenarioLogBundle {
+    public func writeBaselineLogs(to directory: URL) async throws -> ScenarioLogBundle {
         let gains = try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2)
         let runner = try KuyAtt1Runner.activeAltitudeHoldTeacher(gains: gains)
         let output = try await runner.runWithLogs()

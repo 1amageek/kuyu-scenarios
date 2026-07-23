@@ -6,6 +6,37 @@ public struct PlannerExecutorBridge: Sendable {
     public enum BridgeError: Error, Equatable {
         case nonPositiveUpdatePeriod
         case nonFiniteUpdatePeriod
+        case nonFiniteClampRange
+    }
+
+    public enum SnapshotStatus: String, Sendable, Codable, Equatable {
+        case updatedFromProgram
+        case heldWithinUpdatePeriod
+        case heldDisconnected
+        case heldInvalidTime
+        case heldNonMonotonicTime
+    }
+
+    public struct Snapshot: Sendable, Codable, Equatable {
+        public let requestedTime: Double?
+        public let lastUpdateTime: Double?
+        public let vector: [Double]
+        public let programAvailable: Bool
+        public let status: SnapshotStatus
+
+        public init(
+            requestedTime: Double?,
+            lastUpdateTime: Double?,
+            vector: [Double],
+            programAvailable: Bool,
+            status: SnapshotStatus
+        ) {
+            self.requestedTime = requestedTime
+            self.lastUpdateTime = lastUpdateTime
+            self.vector = vector
+            self.programAvailable = programAvailable
+            self.status = status
+        }
     }
 
     public let channelCount: Int
@@ -26,6 +57,9 @@ public struct PlannerExecutorBridge: Sendable {
         guard updatePeriod > 0 else {
             throw BridgeError.nonPositiveUpdatePeriod
         }
+        guard clampRange.lowerBound.isFinite, clampRange.upperBound.isFinite else {
+            throw BridgeError.nonFiniteClampRange
+        }
         self.channelCount = max(0, channelCount)
         self.updatePeriod = updatePeriod
         self.clampRange = clampRange
@@ -37,19 +71,57 @@ public struct PlannerExecutorBridge: Sendable {
         at time: Double,
         program: DescendingIntentProgram?
     ) -> [Double] {
-        if shouldUpdate(now: time) {
-            if let program {
-                lastVector = normalize(program.vector(at: time))
-            }
-            lastUpdateTime = time
+        descendingSnapshot(at: time, program: program).vector
+    }
+
+    public mutating func descendingSnapshot(
+        at time: Double,
+        program: DescendingIntentProgram?
+    ) -> Snapshot {
+        guard time.isFinite else {
+            return snapshot(
+                requestedTime: nil,
+                programAvailable: program != nil,
+                status: .heldInvalidTime
+            )
         }
-        return lastVector
+
+        if let lastUpdateTime, time < lastUpdateTime {
+            return snapshot(
+                requestedTime: time,
+                programAvailable: program != nil,
+                status: .heldNonMonotonicTime
+            )
+        }
+
+        guard shouldUpdate(now: time) else {
+            return snapshot(
+                requestedTime: time,
+                programAvailable: program != nil,
+                status: program == nil ? .heldDisconnected : .heldWithinUpdatePeriod
+            )
+        }
+
+        let status: SnapshotStatus
+        if let program {
+            lastVector = normalize(program.vector(at: time))
+            status = .updatedFromProgram
+        } else {
+            status = .heldDisconnected
+        }
+        lastUpdateTime = time
+
+        return snapshot(
+            requestedTime: time,
+            programAvailable: program != nil,
+            status: status
+        )
     }
 
     private func shouldUpdate(now: Double) -> Bool {
         guard now.isFinite else { return false }
         guard let last = lastUpdateTime else { return true }
-        if now < last { return true }
+        guard now >= last else { return false }
         return (now - last) >= updatePeriod
     }
 
@@ -62,5 +134,19 @@ public struct PlannerExecutorBridge: Sendable {
             values.append(contentsOf: [Double](repeating: 0.0, count: channelCount - values.count))
         }
         return values
+    }
+
+    private func snapshot(
+        requestedTime: Double?,
+        programAvailable: Bool,
+        status: SnapshotStatus
+    ) -> Snapshot {
+        Snapshot(
+            requestedTime: requestedTime,
+            lastUpdateTime: lastUpdateTime,
+            vector: lastVector,
+            programAvailable: programAvailable,
+            status: status
+        )
     }
 }

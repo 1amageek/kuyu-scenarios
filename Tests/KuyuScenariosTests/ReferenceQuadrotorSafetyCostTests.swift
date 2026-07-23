@@ -65,7 +65,13 @@ private func makeLog(tiltRadians: Double, omegaMagnitude: Double) throws -> Worl
 
     // 50% of both limits, well below the default 80% margin.
     let log = try makeLog(tiltRadians: 0.5 * tiltLimit, omegaMagnitude: 0.5 * 20.0)
-    let value = try cost.cost(scenario: scenario, log: log, failure: nil, truncated: false)
+    let value = try cost.cost(
+        scenario: scenario,
+        log: log,
+        duration: 0.002,
+        failure: nil,
+        truncated: false
+    )
 
     #expect(value == 0)
 }
@@ -76,7 +82,7 @@ private func makeLog(tiltRadians: Double, omegaMagnitude: Double) throws -> Worl
         marginFraction: 0.8,
         tiltWeight: 1.0,
         omegaWeight: 0.0,
-        violationCost: 0.0
+        failureImpulseCost: 0.0
     )
     let cost = ReferenceQuadrotorSafetyCost(config: config)
     let tiltLimit = scenario.safetyEnvelope.tiltSafeMaxDegrees * Double.pi / 180.0
@@ -85,18 +91,20 @@ private func makeLog(tiltRadians: Double, omegaMagnitude: Double) throws -> Worl
     let halfway = try cost.cost(
         scenario: scenario,
         log: try makeLog(tiltRadians: 0.9 * tiltLimit, omegaMagnitude: 0),
+        duration: 0.2,
         failure: nil,
         truncated: false
     )
     let atLimit = try cost.cost(
         scenario: scenario,
         log: try makeLog(tiltRadians: tiltLimit, omegaMagnitude: 0),
+        duration: 0.2,
         failure: nil,
         truncated: false
     )
 
-    #expect(abs(halfway - 0.5) < 1e-9)
-    #expect(abs(atLimit - 1.0) < 1e-9)
+    #expect(abs(halfway - 0.1) < 1e-9)
+    #expect(abs(atLimit - 0.2) < 1e-9)
 }
 
 @Test func safetyCostCapsBeyondEnvelopeAndAddsViolationCost() throws {
@@ -105,7 +113,7 @@ private func makeLog(tiltRadians: Double, omegaMagnitude: Double) throws -> Worl
         marginFraction: 0.8,
         tiltWeight: 1.0,
         omegaWeight: 1.0,
-        violationCost: 5.0
+        failureImpulseCost: 5.0
     )
     let cost = ReferenceQuadrotorSafetyCost(config: config)
 
@@ -115,11 +123,12 @@ private func makeLog(tiltRadians: Double, omegaMagnitude: Double) throws -> Worl
     let value = try cost.cost(
         scenario: scenario,
         log: try makeLog(tiltRadians: Double.pi, omegaMagnitude: 400.0),
+        duration: 0.25,
         failure: FailureEvent(reason: .safetyEnvelope, time: 0.001),
         truncated: false
     )
 
-    #expect(abs(value - (2.0 + 2.0 + 5.0)) < 1e-9)
+    #expect(abs(value - 6.0) < 1e-9)
 }
 
 @Test func safetyCostConfigRejectsInvalidValues() throws {
@@ -129,9 +138,79 @@ private func makeLog(tiltRadians: Double, omegaMagnitude: Double) throws -> Worl
     #expect(throws: ReferenceQuadrotorSafetyCost.Config.ValidationError.outOfRange("tiltWeight")) {
         _ = try ReferenceQuadrotorSafetyCost.Config(tiltWeight: -0.1)
     }
-    #expect(throws: ReferenceQuadrotorSafetyCost.Config.ValidationError.nonFinite("violationCost")) {
-        _ = try ReferenceQuadrotorSafetyCost.Config(violationCost: .nan)
+    #expect(
+        throws: ReferenceQuadrotorSafetyCost.Config.ValidationError.nonFinite(
+            "failureImpulseCost"
+        )
+    ) {
+        _ = try ReferenceQuadrotorSafetyCost.Config(failureImpulseCost: .nan)
     }
+}
+
+@Test func integratedSafetyCostIsInvariantToControlPeriod() throws {
+    let scenario = try makeScenario()
+    let cost = ReferenceQuadrotorSafetyCost(
+        config: try ReferenceQuadrotorSafetyCost.Config(
+            tiltWeight: 1,
+            omegaWeight: 0,
+            failureImpulseCost: 0
+        )
+    )
+    let tiltLimit = scenario.safetyEnvelope.tiltSafeMaxDegrees * Double.pi / 180.0
+    let log = try makeLog(tiltRadians: tiltLimit, omegaMagnitude: 0)
+
+    let fine = try (0..<100).reduce(into: 0.0) { total, _ in
+        total += try cost.cost(
+            scenario: scenario,
+            log: log,
+            duration: 0.01,
+            failure: nil,
+            truncated: false
+        )
+    }
+    let coarse = try (0..<10).reduce(into: 0.0) { total, _ in
+        total += try cost.cost(
+            scenario: scenario,
+            log: log,
+            duration: 0.1,
+            failure: nil,
+            truncated: false
+        )
+    }
+
+    #expect(abs(fine - coarse) < 1e-12)
+    #expect(abs(fine - 1) < 1e-12)
+}
+
+@Test func failureImpulseDoesNotScaleWithControlPeriod() throws {
+    let scenario = try makeScenario()
+    let cost = ReferenceQuadrotorSafetyCost(
+        config: try ReferenceQuadrotorSafetyCost.Config(
+            tiltWeight: 0,
+            omegaWeight: 0,
+            failureImpulseCost: 1
+        )
+    )
+    let log = try makeLog(tiltRadians: 0, omegaMagnitude: 0)
+    let failure = FailureEvent(reason: .safetyEnvelope, time: 0.001)
+
+    let fine = try cost.cost(
+        scenario: scenario,
+        log: log,
+        duration: 0.001,
+        failure: failure,
+        truncated: false
+    )
+    let coarse = try cost.cost(
+        scenario: scenario,
+        log: log,
+        duration: 0.1,
+        failure: failure,
+        truncated: false
+    )
+
+    #expect(fine == 1)
+    #expect(coarse == 1)
 }
 
 @Test func safetyCostDescriptorTracksConfig() throws {

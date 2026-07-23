@@ -31,6 +31,26 @@ their target state, safety rules, reward meaning, or pass/fail semantics.
 - Reference-quadrotor suite IDs must resolve through
   `ReferenceQuadrotorScenarioCatalog`; backend and training packages must not
   keep independent suite-ID-to-scenario semantics.
+- Stress-suite coverage must be expressed through `StressSuiteManifest`, with
+  explicit coverage targets and replay evidence, so downstream packages do not
+  reinterpret disturbance, degradation, drift, swap, high-frequency stress, or
+  M2 long-horizon/planner/morphology/partial-observability semantics locally.
+- Persisted stress-suite manifests must be written and reloaded through
+  `StressSuiteManifestArtifactStore` so decoded coverage counts, replay
+  evidence, semantic M2 evidence, and artifact-root containment remain
+  scenario-owned at saved-artifact boundaries.
+- Reference M2 benchmark cases must validate through
+  `LongHorizonBenchmarkSuite.validatedReferenceM2TrackCounts`; morphology
+  transfer requires `LongHorizonMorphologyTransferContract`, and
+  disturbance/delay/partial-observability cases must carry concrete
+  disturbance, latency, and sensor-observability evidence before a manifest can
+  be accepted. Accepted reference M2 manifests persist
+  `ReferenceM2BenchmarkEvidence`, so downstream project-evidence packs can
+  distinguish semantic case evidence from dimension counts alone.
+- Planner degradation must flow through `DescendingIntentProgram` and
+  `PlannerExecutorBridge` so missing or disconnected conscious-layer input
+  degrades to bounded hold behavior instead of becoming a direct actuator
+  command path or a backend-local convention.
 - Baseline reference-quadrotor starter execution must use
   `ReferenceQuadrotorBaselineReplayRuntime` so attitude, lift, and single-lift
   tasks all record deterministic replay evidence.
@@ -51,14 +71,20 @@ in `RELIABILITY_EVIDENCE.md`.
 - **KuyLiftSuite** / **KuySingleLiftSuite** — Lift control scenarios for single-propeller platforms.
 - **ReferenceQuadrotorScenarioCatalog** — Canonical task/suite resolver for runnable starter and regression scenario selection.
 - **ParametricScenarioGenerator** — Generates scenario variants by sweeping parameters.
+- **StressSuiteManifest** — Typed stress coverage and replay-evidence gate for reference quadrotor, reference M2 benchmark, and articulated dynamic scenario bundles; schema, coding, factory, record mapping, coverage validation, replay validation, and Reference M2 evidence checks live in focused files so coverage contracts remain auditable as they grow.
+- **StressSuiteManifestArtifactStore** — Scenario-owned saved-artifact boundary for stress-suite manifests with validation and artifact-root containment.
+- **StressSuiteManifest.ReferenceM2BenchmarkEvidence** — Persisted reference M2 track, morphology-transfer, disturbance, latency, and partial-observability case evidence for downstream adoption gates.
+- **LongHorizonMorphologyTransferContract** — Typed descriptor contrast required before reference M2 morphology-transfer cases can be accepted.
 
 ### Runtime
 
 - **`PlantScenarioRunner`** — Executes a single scenario with a given controller and produces logs.
 - **`PlantScenarioSuiteRunner`** — Runs a full suite of scenarios and aggregates results.
+- **`ReferenceQuadrotorRLEnvironment`** — Scenario-owned RL reset/step environment for reference attitude, lift, and single-lift tasks. One `step` applies the current policy action before physics, holds it for one Cut/MotorNerve control period, aggregates reward, and checks failure after every enclosed physics tick. State, reset, step, observation, world-model validation, simulator construction, stress validation, and support helpers live in focused files so these semantics remain auditable.
 - **`ReferenceQuadrotorBaselineReplayRuntime`** — Executes baseline reference-quadrotor attitude/lift/single-lift suites with replay verification enabled.
 - **`ScenarioRunner`** — Sequential execution of independent scenarios.
 - **`DescendingIntentProgram`** — Time-varying descending channel commands (keyframe interpolation).
+- **`PlannerExecutorBridge`** — Fixed-rate descending channel bridge with snapshot evidence for planner disconnect and hold behavior.
 
 ### Evaluation Metrics
 

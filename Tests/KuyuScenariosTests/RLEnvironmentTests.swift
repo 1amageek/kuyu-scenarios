@@ -36,6 +36,262 @@ import KuyuPhysics
     #expect(final?.info.failureReason == nil)
 }
 
+@Test func referenceQuadrotorEnvironmentStepsOneCompleteControlPeriod() throws {
+    for controlPeriodSteps in [UInt64(2), UInt64(3)] {
+        let definition = try makeShortAttitudeScenario(duration: 0.018)
+        let action = try makeDriveAction([0.2, 0.3, 0.4, 0.5])
+        var environment = ReferenceQuadrotorRLEnvironment(
+            schedule: try SimulationSchedule.baseline(cutPeriodSteps: controlPeriodSteps),
+            determinism: .tier1Baseline,
+            motorNerveRateLimitPerSecond: 100.0,
+            motorNerveSmoothingTimeConstant: nil
+        )
+        var singleTickEnvironment = ReferenceQuadrotorRLEnvironment(
+            schedule: try SimulationSchedule.baseline(cutPeriodSteps: 1),
+            determinism: .tier1Baseline,
+            motorNerveRateLimitPerSecond: 100.0,
+            motorNerveSmoothingTimeConstant: nil
+        )
+
+        let actionObservation = try environment.reset(seed: definition.config.seed, scenario: definition)
+        _ = try singleTickEnvironment.reset(seed: definition.config.seed, scenario: definition)
+        let controlStep = try environment.step(action: action)
+        var singleTickReward = 0.0
+        var singleTickStep: EnvironmentStep?
+        for _ in 0..<controlPeriodSteps {
+            let step = try singleTickEnvironment.step(action: action)
+            singleTickReward += step.reward
+            singleTickStep = step
+        }
+
+        let expectedDuration = definition.config.timeStep.delta * Double(controlPeriodSteps)
+        #expect(actionObservation.time.time == 0.0)
+        #expect(abs(controlStep.observation.time.time - expectedDuration) <= 1.0e-12)
+        #expect(controlStep.observation.time.stepIndex == controlPeriodSteps)
+        #expect(controlStep.info.stepCount == 1)
+        #expect(controlStep.log.driveIntents == action.driveIntents)
+        #expect(controlStep.observation.plantState == singleTickStep?.observation.plantState)
+        #expect(abs(controlStep.reward - singleTickReward) <= 1.0e-12)
+
+        let nextAction = try makeDriveAction([0.6, 0.5, 0.4, 0.3])
+        let nextStep = try environment.step(action: nextAction)
+        #expect(nextStep.log.driveIntents == nextAction.driveIntents)
+        #expect(nextStep.info.stepCount == 2)
+        #expect(abs(nextStep.observation.time.time - (2.0 * expectedDuration)) <= 1.0e-12)
+    }
+}
+
+@Test func referenceQuadrotorEnvironmentIntegratesSafetyCostAtPhysicsTickRate() throws {
+    let definition = try makeShortAttitudeScenario(duration: 0.018)
+    let safetyCost = ReferenceQuadrotorSafetyCost(
+        config: try ReferenceQuadrotorSafetyCost.Config(
+            marginFraction: 0,
+            constraintLimits: try .init(
+                maximumAngularRate: 1.0e-9,
+                maximumAttitudeDeviationRadians: 1.0e-9
+            ),
+            failureImpulseCost: 0
+        )
+    )
+    let action = try makeDriveAction([0.2, 0.3, 0.4, 0.5])
+    var controlEnvironment = ReferenceQuadrotorRLEnvironment(
+        schedule: try SimulationSchedule.baseline(cutPeriodSteps: 3),
+        determinism: .tier1Baseline,
+        motorNerveRateLimitPerSecond: 100,
+        motorNerveSmoothingTimeConstant: nil,
+        safetyCostFunction: safetyCost
+    )
+    var tickEnvironment = ReferenceQuadrotorRLEnvironment(
+        schedule: try SimulationSchedule.baseline(cutPeriodSteps: 1),
+        determinism: .tier1Baseline,
+        motorNerveRateLimitPerSecond: 100,
+        motorNerveSmoothingTimeConstant: nil,
+        safetyCostFunction: safetyCost
+    )
+    _ = try controlEnvironment.reset(seed: definition.config.seed, scenario: definition)
+    _ = try tickEnvironment.reset(seed: definition.config.seed, scenario: definition)
+
+    let controlStep = try controlEnvironment.step(action: action)
+    let controlMeasurement = try #require(controlStep.costMeasurement)
+    var tickCost = 0.0
+    for _ in 0..<3 {
+        let tickStep = try tickEnvironment.step(action: action)
+        tickCost += try #require(tickStep.costMeasurement).value
+    }
+
+    #expect(controlMeasurement.descriptor == safetyCost.descriptor)
+    #expect(controlMeasurement.physicsTickCount == 3)
+    #expect(abs(controlMeasurement.duration - 0.003) < 1.0e-12)
+    #expect(abs(controlMeasurement.value - tickCost) < 1.0e-12)
+}
+
+@Test func referenceQuadrotorEnvironmentFailsWithinControlPeriodWithoutAdvancingPastFailure() throws {
+    let definition = try makeShortAttitudeScenario(duration: 0.018, groundZ: 3.0)
+    let safetyCost = ReferenceQuadrotorSafetyCost(
+        config: try ReferenceQuadrotorSafetyCost.Config(
+            tiltWeight: 0,
+            omegaWeight: 0,
+            failureImpulseCost: 5
+        )
+    )
+    var environment = ReferenceQuadrotorRLEnvironment(
+        schedule: try SimulationSchedule.baseline(cutPeriodSteps: 3),
+        determinism: .tier1Baseline,
+        motorNerveRateLimitPerSecond: 100.0,
+        motorNerveSmoothingTimeConstant: nil,
+        safetyCostFunction: safetyCost
+    )
+    _ = try environment.reset(seed: definition.config.seed, scenario: definition)
+
+    let step = try environment.step(action: makeDriveAction([0.5, 0.5, 0.5, 0.5]))
+
+    #expect(step.done)
+    #expect(!step.truncated)
+    #expect(step.info.failureReason == .groundViolation)
+    #expect(step.observation.time.stepIndex == 1)
+    #expect(abs(step.observation.time.time - definition.config.timeStep.delta) <= 1.0e-12)
+    let measurement = try #require(step.costMeasurement)
+    #expect(measurement.physicsTickCount == 1)
+    #expect(measurement.value == 5)
+}
+
+@Test func referenceQuadrotorEnvironmentTruncatesAtPartialFinalControlPeriod() throws {
+    let definition = try makeShortAttitudeScenario(duration: 0.02)
+    var environment = ReferenceQuadrotorRLEnvironment(
+        schedule: try SimulationSchedule.baseline(cutPeriodSteps: 3),
+        determinism: .tier1Baseline,
+        motorNerveRateLimitPerSecond: 100.0,
+        motorNerveSmoothingTimeConstant: nil
+    )
+    var observation = try environment.reset(seed: definition.config.seed, scenario: definition)
+    var transitions: [(source: Double, outcome: EnvironmentStep)] = []
+
+    while true {
+        let step = try environment.step(action: makeDriveAction([0.5, 0.5, 0.5, 0.5]))
+        transitions.append((source: observation.time.time, outcome: step))
+        observation = step.observation
+        if step.done || step.truncated { break }
+    }
+
+    let final = try #require(transitions.last)
+    #expect(transitions.count == 7)
+    #expect(!final.outcome.done)
+    #expect(final.outcome.truncated)
+    #expect(abs(final.source - 0.018) <= 1.0e-12)
+    #expect(abs(final.outcome.observation.time.time - 0.020) <= 1.0e-12)
+    #expect(final.outcome.observation.time.stepIndex == 20)
+}
+
+@Test func referenceQuadrotorEnvironmentRejectsMismatchedControlSchedule() throws {
+    let definition = try makeShortAttitudeScenario()
+    let schedule = try SimulationSchedule(
+        sensor: SubsystemSchedule(periodSteps: 1),
+        actuator: SubsystemSchedule(periodSteps: 1),
+        cut: SubsystemSchedule(periodSteps: 2),
+        motorNerve: SubsystemSchedule(periodSteps: 1)
+    )
+    var environment = ReferenceQuadrotorRLEnvironment(
+        schedule: schedule,
+        determinism: .tier1Baseline
+    )
+
+    #expect(
+        throws: ReferenceQuadrotorRLEnvironment.EnvironmentError.unsupportedControlSchedule(
+            cutPeriodSteps: 2,
+            motorNervePeriodSteps: 1,
+            sensorPeriodSteps: 1
+        )
+    ) {
+        _ = try environment.reset(seed: definition.config.seed, scenario: definition)
+    }
+}
+
+@Test func referenceQuadrotorEnvironmentRealizesTemporalCTBRBeforeMotorNerve() throws {
+    let definition = try makeShortAttitudeScenario()
+    var environment = ReferenceQuadrotorRLEnvironment(
+        schedule: try SimulationSchedule.baseline(cutPeriodSteps: 1),
+        determinism: .tier1Baseline,
+        actionRealization: .temporalCTBR(.canonical),
+        motorNerveRateLimitPerSecond: 1000,
+        motorNerveSmoothingTimeConstant: nil
+    )
+    _ = try environment.reset(seed: definition.config.seed, scenario: definition)
+    let command = try ReferenceQuadrotorCTBRCommand(
+        collectiveThrust: 0.5,
+        normalizedBodyRate: Axis3(x: 1.0, y: 0.0, z: 0.0)
+    )
+
+    let step = try environment.step(command: command)
+    let trace = try #require(step.log.motorNerveTrace)
+
+    #expect(abs(trace.uRaw[0] - 0.5) < 1e-12)
+    #expect(abs(trace.uRaw[1] - 0.6458333333333334) < 1e-12)
+    #expect(abs(trace.uRaw[2] - 0.5) < 1e-12)
+    #expect(abs(trace.uRaw[3] - 0.3541666666666667) < 1e-12)
+    #expect(step.log.driveIntents.map(\.activation) == trace.uRaw)
+    #expect(environment.activeExecutionContract?.actionRealization == .temporalCTBR(.canonical))
+}
+
+@Test func referenceQuadrotorEnvironmentRejectsDriveMixerActionInTemporalCTBRMode() throws {
+    let definition = try makeShortAttitudeScenario()
+    var environment = ReferenceQuadrotorRLEnvironment(
+        schedule: try SimulationSchedule.baseline(cutPeriodSteps: 1),
+        determinism: .tier1Baseline,
+        actionRealization: .temporalCTBR(.canonical)
+    )
+    _ = try environment.reset(seed: definition.config.seed, scenario: definition)
+
+    #expect(
+        throws: ReferenceQuadrotorRLEnvironment.EnvironmentError.actionContractMismatch(
+            expected: .temporalCTBR,
+            received: .driveMixer
+        )
+    ) {
+        _ = try environment.step(action: makeDriveAction([0.5, 0, 0, 0]))
+    }
+}
+
+@Test func referenceQuadrotorEnvironmentRejectsTemporalCTBRCommandInDriveMixerMode() throws {
+    let definition = try makeShortAttitudeScenario()
+    var environment = ReferenceQuadrotorRLEnvironment(
+        schedule: try SimulationSchedule.baseline(cutPeriodSteps: 1),
+        determinism: .tier1Baseline
+    )
+    _ = try environment.reset(seed: definition.config.seed, scenario: definition)
+    let command = try ReferenceQuadrotorCTBRCommand(
+        collectiveThrust: 0.5,
+        normalizedBodyRate: Axis3(x: 0, y: 0, z: 0)
+    )
+
+    #expect(
+        throws: ReferenceQuadrotorRLEnvironment.EnvironmentError.actionContractMismatch(
+            expected: .driveMixer,
+            received: .temporalCTBR
+        )
+    ) {
+        _ = try environment.step(command: command)
+    }
+}
+
+@Test func referenceQuadrotorEnvironmentConfigHashBindsActionRealization() throws {
+    let definition = try makeShortAttitudeScenario()
+    let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
+    var driveEnvironment = ReferenceQuadrotorRLEnvironment(
+        schedule: schedule,
+        determinism: .tier1Baseline
+    )
+    var ctbrEnvironment = ReferenceQuadrotorRLEnvironment(
+        schedule: schedule,
+        determinism: .tier1Baseline,
+        actionRealization: .temporalCTBR(.canonical)
+    )
+
+    _ = try driveEnvironment.reset(seed: definition.config.seed, scenario: definition)
+    _ = try ctbrEnvironment.reset(seed: definition.config.seed, scenario: definition)
+
+    #expect(driveEnvironment.configHash != ctbrEnvironment.configHash)
+}
+
 @Test func privilegedAltitudeTeacherAdjustsOnlyCollectiveThrottle() async throws {
     let definition = try makeShortAttitudeScenario()
     let gains = try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2)
@@ -102,20 +358,65 @@ import KuyuPhysics
     #expect(output.result.replay.checks.isEmpty)
 }
 
-private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDefinition {
+@Test func referenceQuadrotorRLEnvironmentResponsibilitiesLiveInSplitFiles() throws {
+    let rlRoot = packageRootURL()
+        .appendingPathComponent("Sources", isDirectory: true)
+        .appendingPathComponent("KuyuScenarios", isDirectory: true)
+        .appendingPathComponent("RL", isDirectory: true)
+    let environment = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment.swift")
+    let reset = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+Reset.swift")
+    let step = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+Step.swift")
+    let advance = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+Advance.swift")
+    let controlLog = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+ControlLog.swift")
+    let episodeInfo = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+EpisodeInfo.swift")
+    let observation = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+Observation.swift")
+    let quad = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+QuadSimulator.swift")
+    let lift = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+LiftSimulator.swift")
+    let single = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+SingleSimulator.swift")
+    let stress = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+StressValidation.swift")
+    let support = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+Support.swift")
+    let worldModel = try sourceContents(root: rlRoot, fileName: "ReferenceQuadrotorRLEnvironment+WorldModel.swift")
+
+    #expect(environment.contains("public struct ReferenceQuadrotorRLEnvironment"))
+    #expect(environment.contains("public enum EnvironmentError"))
+    #expect(!environment.contains("mutating func reset"))
+    #expect(!environment.contains("mutating func step"))
+    #expect(!environment.contains("func makeQuadSimulator"))
+    #expect(reset.contains("mutating func reset"))
+    #expect(step.contains("mutating func step"))
+    #expect(advance.contains("func advance"))
+    #expect(controlLog.contains("func log"))
+    #expect(controlLog.contains("applying application: WorldControlApplication"))
+    #expect(episodeInfo.contains("func episodeInfo"))
+    #expect(observation.contains("func initialObservation"))
+    #expect(quad.contains("func makeQuadSimulator"))
+    #expect(quad.contains("func quadMotorNerve"))
+    #expect(lift.contains("func makeLiftSimulator"))
+    #expect(single.contains("func makeSingleSimulator"))
+    #expect(single.contains("func fixedSinglePropMotorNerve"))
+    #expect(stress.contains("func validateSingleLiftStress"))
+    #expect(support.contains("func buildStore"))
+    #expect(support.contains("func scaledNoise"))
+    #expect(worldModel.contains("func validateWorldModelPrediction"))
+}
+
+private func makeShortAttitudeScenario(
+    duration: Double = 0.02,
+    groundZ: Double = 0.0
+) throws -> ReferenceQuadrotorScenarioDefinition {
     let timeStep = try TimeStep(delta: 0.001)
     let envelope = try SafetyEnvelope(
         omegaSafeMax: 20.0,
         tiltSafeMaxDegrees: 60.0,
         sustainedViolationSeconds: 0.200,
-        groundZ: 0.0,
+        groundZ: groundZ,
         fallDurationSeconds: 0.5,
         fallVelocityThreshold: 0.05
     )
     let config = try ScenarioConfig(
         id: ScenarioID("KUY-RL-TEST/ATT"),
         seed: ScenarioSeed(42),
-        duration: 0.02,
+        duration: duration,
         timeStep: timeStep
     )
     return ReferenceQuadrotorScenarioDefinition(
@@ -131,6 +432,26 @@ private func makeShortAttitudeScenario() throws -> ReferenceQuadrotorScenarioDef
         swapEvents: [],
         hfEvents: []
     )
+}
+
+private func makeDriveAction(_ activations: [Double]) throws -> EnvironmentAction {
+    .driveIntents(
+        try activations.enumerated().map { index, activation in
+            try DriveIntent(index: DriveIndex(UInt32(index)), activation: activation)
+        },
+        corrections: []
+    )
+}
+
+private func packageRootURL(filePath: String = #filePath) -> URL {
+    URL(fileURLWithPath: filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}
+
+private func sourceContents(root: URL, fileName: String) throws -> String {
+    try String(contentsOf: root.appendingPathComponent(fileName), encoding: .utf8)
 }
 
 @Test func referenceQuadrotorEnvironmentSupportsLiftAndSingleLiftTasks() async throws {

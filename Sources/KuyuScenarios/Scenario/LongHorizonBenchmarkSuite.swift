@@ -10,24 +10,87 @@ public enum LongHorizonBenchmarkTrack: String, Sendable, Codable, Equatable, Cas
 public struct LongHorizonBenchmarkCase: Sendable, Codable, Equatable {
     public let track: LongHorizonBenchmarkTrack
     public let definition: ReferenceQuadrotorScenarioDefinition
+    public let morphologyTransfer: LongHorizonMorphologyTransferContract?
 
-    public init(track: LongHorizonBenchmarkTrack, definition: ReferenceQuadrotorScenarioDefinition) {
+    public init(
+        track: LongHorizonBenchmarkTrack,
+        definition: ReferenceQuadrotorScenarioDefinition,
+        morphologyTransfer: LongHorizonMorphologyTransferContract? = nil
+    ) {
         self.track = track
         self.definition = definition
+        self.morphologyTransfer = morphologyTransfer
     }
 }
 
 public struct LongHorizonBenchmarkSuite: Sendable, Codable, Equatable {
+    public enum ValidationError: Error, Equatable {
+        case invalidScenariosPerTrack(Int)
+        case missingReferenceM2Track(LongHorizonBenchmarkTrack)
+        case imbalancedReferenceM2TrackCount(
+            track: LongHorizonBenchmarkTrack,
+            expectedCount: Int,
+            actualCount: Int
+        )
+        case nonFiniteBenchmarkDuration(String)
+        case nonLongHorizonScenario(scenarioID: String, duration: Double)
+        case missingMorphologyTransferContract(String)
+        case unexpectedMorphologyTransferContract(
+            track: LongHorizonBenchmarkTrack,
+            scenarioID: String
+        )
+        case missingDisturbanceEvidence(String)
+        case missingLatencyEvidence(String)
+        case missingPartialObservabilityEvidence(String)
+    }
+
+    public static let minimumLongHorizonDurationSeconds = 20.0
+
     public let cases: [LongHorizonBenchmarkCase]
 
     public init(cases: [LongHorizonBenchmarkCase]) {
         self.cases = cases
     }
 
+    public var trackCounts: [LongHorizonBenchmarkTrack: Int] {
+        var counts: [LongHorizonBenchmarkTrack: Int] = [:]
+        for benchmarkCase in cases {
+            counts[benchmarkCase.track, default: 0] += 1
+        }
+        return counts
+    }
+
+    public func balancedReferenceM2TrackCounts() throws -> [LongHorizonBenchmarkTrack: Int] {
+        let counts = trackCounts
+        for track in LongHorizonBenchmarkTrack.allCases {
+            let count = counts[track, default: 0]
+            guard count > 0 else {
+                throw ValidationError.missingReferenceM2Track(track)
+            }
+        }
+
+        let expectedCount = counts.values.min() ?? 0
+        for track in LongHorizonBenchmarkTrack.allCases {
+            let actualCount = counts[track, default: 0]
+            guard actualCount == expectedCount else {
+                throw ValidationError.imbalancedReferenceM2TrackCount(
+                    track: track,
+                    expectedCount: expectedCount,
+                    actualCount: actualCount
+                )
+            }
+        }
+        return counts
+    }
+
     public static func makeDefault(
         scenariosPerTrack: Int,
         baseSeed: UInt64
     ) throws -> LongHorizonBenchmarkSuite {
+        guard scenariosPerTrack > 0 else {
+            throw ValidationError.invalidScenariosPerTrack(scenariosPerTrack)
+        }
+
         let taskGenerator = ParametricScenarioGenerator(
             parameterSpace: .init(
                 durationRange: 60.0...120.0
@@ -58,9 +121,10 @@ public struct LongHorizonBenchmarkSuite: Sendable, Codable, Equatable {
             )
         }
         let transferCases = try transfer.enumerated().map { index, definition in
-            try LongHorizonBenchmarkCase(
+            LongHorizonBenchmarkCase(
                 track: .morphologyTransfer,
-                definition: retag(definition, prefix: "LH-TRANSFER", index: index)
+                definition: try retag(definition, prefix: "LH-TRANSFER", index: index),
+                morphologyTransfer: try morphologyTransferContract(index: index)
             )
         }
         let disturbanceCases = try disturbance.enumerated().map { index, definition in
@@ -73,6 +137,7 @@ public struct LongHorizonBenchmarkSuite: Sendable, Codable, Equatable {
                     magnitude: 1.0
                 )
             )
+            let torqueEvents = try ensuredDisturbanceTorqueEvents(for: definition)
             let disturbanceDefinition = ReferenceQuadrotorScenarioDefinition(
                 config: try ScenarioConfig(
                     id: try ScenarioID("LH-DISTURB-\(index)"),
@@ -86,9 +151,9 @@ public struct LongHorizonBenchmarkSuite: Sendable, Codable, Equatable {
                 initialAngularVelocity: definition.initialAngularVelocity,
                 safetyEnvelope: definition.safetyEnvelope,
                 liftEnvelope: definition.liftEnvelope,
-                torqueEvents: definition.torqueEvents,
+                torqueEvents: torqueEvents,
                 actuatorDegradation: definition.actuatorDegradation,
-                gyroDriftScale: definition.gyroDriftScale,
+                gyroDriftScale: max(definition.gyroDriftScale, 1.5),
                 swapEvents: definition.swapEvents,
                 hfEvents: hfEvents
             )
@@ -128,6 +193,22 @@ public struct LongHorizonBenchmarkSuite: Sendable, Codable, Equatable {
             hfEvents: definition.hfEvents
         )
     }
+
+    private static func ensuredDisturbanceTorqueEvents(
+        for definition: ReferenceQuadrotorScenarioDefinition
+    ) throws -> [TorqueDisturbanceEvent] {
+        guard definition.torqueEvents.isEmpty else {
+            return definition.torqueEvents
+        }
+        return [
+            try TorqueDisturbanceEvent(
+                startTime: max(0.5, definition.config.duration * 0.25),
+                duration: 0.1,
+                torqueBody: Axis3(x: 0.2, y: 0, z: 0)
+            ),
+        ]
+    }
+
 }
 
 public struct DeterministicReplayBundle: Sendable, Codable, Equatable {
