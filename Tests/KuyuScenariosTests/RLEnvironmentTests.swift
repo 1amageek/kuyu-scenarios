@@ -703,17 +703,85 @@ private func sourceContents(root: URL, fileName: String) throws -> String {
     )
 
     #expect(definition.liftEnvelope == nil)
-    #expect(reward.descriptor.version == "5")
+    #expect(reward.descriptor.version == "6")
     #expect(lowReward < targetReward)
+}
+
+/// The defect v6 fixes: with a clamped ratio the altitude and vertical-velocity
+/// activations were exactly constant for every error at or beyond their scale,
+/// so a policy far off target paid no marginal cost for going further off
+/// target. Measured on real training data, 98.32% of transitions sat on that
+/// flat side.
+@Test func denseRewardKeepsPenalizingAltitudeErrorFarBeyondTolerance() throws {
+    let definition = try makeShortAttitudeScenario()
+    let reference = try ReferenceQuadrotorAltitudeHoldReference(definition: definition)
+    let reward = ReferenceQuadrotorDenseReward()
+    // Every offset is at or past the tolerance, i.e. entirely inside the region
+    // the clamped form flattened.
+    let offsets = [reference.tolerance, 1.0, 10.0, 100.0, 1000.0]
+    var previous = Double.infinity
+
+    for offset in offsets {
+        let log = try makeRewardLog(
+            altitude: definition.initialPosition.z + offset,
+            verticalVelocity: 0
+        )
+        let value = try reward.reward(scenario: definition, log: log, failure: nil, truncated: false)
+        #expect(value < previous)
+        #expect(value >= 0)
+        previous = value
+    }
+}
+
+@Test func denseRewardKeepsPenalizingVerticalSpeedFarBeyondReference() throws {
+    let definition = try makeShortAttitudeScenario()
+    let reference = try ReferenceQuadrotorAltitudeHoldReference(definition: definition)
+    let reward = ReferenceQuadrotorDenseReward()
+    let speeds = [reference.referenceVerticalVelocity, 1.0, 10.0, 100.0, 1000.0]
+    var previous = Double.infinity
+
+    for speed in speeds {
+        let log = try makeRewardLog(
+            altitude: definition.initialPosition.z,
+            verticalVelocity: speed
+        )
+        let value = try reward.reward(scenario: definition, log: log, failure: nil, truncated: false)
+        #expect(value < previous)
+        #expect(value >= 0)
+        previous = value
+    }
+}
+
+@Test func errorNormalizationStaysBoundedAndMonotone() {
+    let scale = 0.2
+    #expect(ReferenceQuadrotorErrorNormalization.saturating(error: 0, scale: scale) == 0)
+    #expect(abs(ReferenceQuadrotorErrorNormalization.saturating(error: scale, scale: scale) - 0.5) < 1e-12)
+    // Negative and non-finite inputs must not become an unpenalized state.
+    #expect(ReferenceQuadrotorErrorNormalization.saturating(error: -1, scale: scale) == 0)
+    #expect(ReferenceQuadrotorErrorNormalization.saturating(error: .infinity, scale: scale) == 1)
+    #expect(ReferenceQuadrotorErrorNormalization.saturating(error: .nan, scale: scale) == 1)
+    // A zero scale must not divide by zero.
+    #expect(ReferenceQuadrotorErrorNormalization.saturating(error: 1, scale: 0) < 1)
+
+    var previous = -1.0
+    for error in stride(from: 0.0, through: 200.0, by: 0.25) {
+        let value = ReferenceQuadrotorErrorNormalization.saturating(error: error, scale: scale)
+        #expect(value >= 0)
+        #expect(value < 1)
+        #expect(value > previous)
+        previous = value
+    }
 }
 
 @Test func denseRewardStaysWithinSurvivalBudgetSoContinuingBeatsTerminating() throws {
     let definition = try makeShortAttitudeScenario()
     let reward = ReferenceQuadrotorDenseReward()
     let hoverLog = try makeRewardLog(altitude: definition.initialPosition.z, verticalVelocity: 0)
-    // Saturates every normalized penalty term: 90-degree tilt is the tilt
-    // normalization boundary, and the altitude/velocity errors are far past
-    // their references.
+    // Exhausts the penalty budget: 90-degree tilt is the tilt normalization
+    // boundary, and the altitude/velocity errors are far past their references.
+    // The vertical terms approach but never reach 1 by construction (v6), so the
+    // worst reward is bounded below by zero and above by a small residual rather
+    // than being exactly zero.
     let worstLog = try makeRewardLog(
         altitude: definition.initialPosition.z - 100.0,
         verticalVelocity: -100.0,
@@ -741,7 +809,7 @@ private func sourceContents(root: URL, fileName: String) throws -> String {
     #expect(hoverReward <= reward.config.survivalReward)
     #expect(worstReward < hoverReward)
     #expect(abs(hoverReward - reward.config.survivalReward) < 1e-9)
-    #expect(abs(worstReward) < 1e-9)
+    #expect(worstReward < 0.01 * reward.config.survivalReward)
 }
 
 @Test func denseRewardChargesFailurePenaltyOnTheFailingStep() throws {

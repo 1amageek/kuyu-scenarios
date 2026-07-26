@@ -87,9 +87,18 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
         // instead of `aliveReward - penalty` in [-penaltyWeightSum, aliveReward],
         // which removes the early-termination incentive that an all-negative step
         // reward creates under bootstrap-to-zero termination.
+        //
+        // version 6: the altitude and vertical-velocity activations are
+        // normalized by `ReferenceQuadrotorErrorNormalization` instead of a
+        // clamped ratio. Both quantities are physically unbounded, so clamping
+        // them made the reward exactly flat along the vertical axis for 98.32%
+        // and 99.85% of the measured training distribution; the policy could
+        // hold 3.67x hover thrust indefinitely at no marginal cost. The bound
+        // and the weights are unchanged, so v6 is a strictly monotone
+        // re-shaping of v5 in the vertical terms only.
         self.descriptor = RewardDescriptor(
             id: "reference-quadrotor-dense",
-            version: "5",
+            version: "6",
             configHash: Self.configHash(config)
         )
     }
@@ -128,8 +137,12 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
         let altitudeReference = try ReferenceQuadrotorAltitudeHoldReference(definition: scenario)
         // Dense vertical-velocity penalty for all tasks. Scenario semantics own
         // the reference velocity so reward, observation, and tensor worlds agree.
-        let normalizedVerticalVelocity = clamp(
-            abs(log.plantState.root.velocity.z) / max(altitudeReference.referenceVerticalVelocity, 1e-6)
+        // Normalized by `ReferenceQuadrotorErrorNormalization`, not by a clamped
+        // ratio: vertical speed is unbounded and the clamped form was flat for
+        // 99.85% of the measured training distribution.
+        let normalizedVerticalVelocity = ReferenceQuadrotorErrorNormalization.saturating(
+            error: abs(log.plantState.root.velocity.z),
+            scale: altitudeReference.referenceVerticalVelocity
         )
         penalty += config.verticalVelocityPenalty * normalizedVerticalVelocity
 
@@ -139,7 +152,10 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
         // attitude PPO only sees a D-like |vz| penalty and can settle into slow
         // descent with little immediate reward pressure to climb back.
         let altitudeError = abs(log.plantState.root.position.z - altitudeReference.targetPosition.z)
-        let normalizedAltitudeError = clamp(altitudeError / max(altitudeReference.tolerance, 1e-6))
+        let normalizedAltitudeError = ReferenceQuadrotorErrorNormalization.saturating(
+            error: altitudeError,
+            scale: altitudeReference.tolerance
+        )
         penalty += config.altitudePenalty * normalizedAltitudeError
 
         var value = config.survivalReward * (1.0 - (penalty / penaltyWeightSum))
