@@ -703,7 +703,7 @@ private func sourceContents(root: URL, fileName: String) throws -> String {
     )
 
     #expect(definition.liftEnvelope == nil)
-    #expect(reward.descriptor.version == "6")
+    #expect(reward.descriptor.version == "7")
     #expect(lowReward < targetReward)
 }
 
@@ -777,8 +777,9 @@ private func sourceContents(root: URL, fileName: String) throws -> String {
     let definition = try makeShortAttitudeScenario()
     let reward = ReferenceQuadrotorDenseReward()
     let hoverLog = try makeRewardLog(altitude: definition.initialPosition.z, verticalVelocity: 0)
-    // Exhausts the penalty budget: 90-degree tilt is the tilt normalization
-    // boundary, and the altitude/velocity errors are far past their references.
+    // Exhausts the penalty budget: 90-degree tilt is past this scenario's
+    // 60-degree tilt normalization boundary, and the altitude/velocity errors
+    // are far past their references.
     // The vertical terms approach but never reach 1 by construction (v6), so the
     // worst reward is bounded below by zero and above by a small residual rather
     // than being exactly zero.
@@ -810,6 +811,165 @@ private func sourceContents(root: URL, fileName: String) throws -> String {
     #expect(worstReward < hoverReward)
     #expect(abs(hoverReward - reward.config.survivalReward) < 1e-9)
     #expect(worstReward < 0.01 * reward.config.survivalReward)
+}
+
+@Test func tiltNormalizationTakesTheStricterOfEnvelopeAndQuarterTurn() throws {
+    let quarterTurn = Double.pi / 2.0
+
+    // The binding case: an attitude envelope that terminates before a quarter
+    // turn normalizes by its own limit.
+    #expect(
+        abs(
+            ReferenceQuadrotorErrorNormalization.tiltNormalizationRadians(tiltSafeMaxDegrees: 60.0)
+                - Double.pi / 3.0
+        ) < 1e-12
+    )
+    // The non-binding case: lift and single-lift declare 180 degrees, meaning
+    // tilt is unconstrained. Normalizing by the envelope would halve their
+    // slope, so the quarter turn wins.
+    #expect(
+        ReferenceQuadrotorErrorNormalization.tiltNormalizationRadians(tiltSafeMaxDegrees: 180.0)
+            == quarterTurn
+    )
+    #expect(
+        ReferenceQuadrotorErrorNormalization.tiltNormalizationRadians(tiltSafeMaxDegrees: 90.0)
+            == quarterTurn
+    )
+    // A non-finite limit is not replaced by a plausible scale; each caller's
+    // own contract reports it.
+    #expect(
+        ReferenceQuadrotorErrorNormalization
+            .tiltNormalizationRadians(tiltSafeMaxDegrees: .infinity) == .infinity
+    )
+    #expect(
+        ReferenceQuadrotorErrorNormalization
+            .tiltNormalizationRadians(tiltSafeMaxDegrees: .nan)
+            .isNaN
+    )
+}
+
+@Test func denseRewardReachesFullTiltPenaltyAtTheScenarioTerminationLimit() throws {
+    let definition = try makeShortAttitudeScenario()
+    let reward = ReferenceQuadrotorDenseReward()
+    let limitRadians = definition.safetyEnvelope.tiltSafeMaxDegrees * Double.pi / 180.0
+
+    func rewardAt(tiltRadians: Double) throws -> Double {
+        try reward.reward(
+            scenario: definition,
+            log: try makeRewardLog(
+                altitude: definition.initialPosition.z,
+                verticalVelocity: 0,
+                tiltRadians: tiltRadians
+            ),
+            failure: nil,
+            truncated: false
+        )
+    }
+
+    let level = try rewardAt(tiltRadians: 0)
+    let atHalfLimit = try rewardAt(tiltRadians: limitRadians / 2.0)
+    let atLimit = try rewardAt(tiltRadians: limitRadians)
+    let pastLimit = try rewardAt(tiltRadians: Double.pi / 2.0)
+
+    // The whole point of v7: full tilt penalty lands where the episode actually
+    // terminates, so the reward and `ReferenceQuadrotorSafetyCost` agree on
+    // where the cliff is instead of the reward spending a third of its tilt
+    // range on states the episode can never occupy.
+    #expect(atLimit < level)
+    #expect(abs(atLimit - pastLimit) < 1e-12)
+    // The term is linear in tilt below the limit, so half the angle is half the
+    // penalty. This pins the normalization denominator, not just its clip.
+    #expect(abs((level - atHalfLimit) - (level - atLimit) / 2.0) < 1e-9)
+}
+
+@Test func denseRewardKeepsTheQuarterTurnTiltScaleWhenTheEnvelopeDoesNotBind() throws {
+    let definition = try makeShortLiftScenario(
+        kind: .liftHover,
+        id: "KUY-RL-TEST/LIFT-TILT-SCALE",
+        seed: 46,
+        initialZ: 1.0,
+        targetZ: 2.5
+    )
+    let reward = ReferenceQuadrotorDenseReward()
+    #expect(definition.safetyEnvelope.tiltSafeMaxDegrees == 180.0)
+
+    func rewardAt(tiltRadians: Double) throws -> Double {
+        try reward.reward(
+            scenario: definition,
+            log: try makeRewardLog(
+                altitude: definition.initialPosition.z,
+                verticalVelocity: 0,
+                tiltRadians: tiltRadians
+            ),
+            failure: nil,
+            truncated: false
+        )
+    }
+
+    let level = try rewardAt(tiltRadians: 0)
+    let atEighthTurn = try rewardAt(tiltRadians: Double.pi / 4.0)
+    let atQuarterTurn = try rewardAt(tiltRadians: Double.pi / 2.0)
+    let atTwoThirdsOfEnvelope = try rewardAt(tiltRadians: Double.pi * 2.0 / 3.0)
+
+    // Normalizing by the 180-degree envelope would halve the slope of a task
+    // whose tilt is already unconstrained. The stricter bound keeps it.
+    #expect(abs(atQuarterTurn - atTwoThirdsOfEnvelope) < 1e-12)
+    #expect(abs((level - atEighthTurn) - (level - atQuarterTurn) / 2.0) < 1e-9)
+}
+
+/// `SafetyEnvelope.init` rejects a non-positive `tiltSafeMaxDegrees`, but its
+/// `Codable` conformance is synthesized, so a decoded scenario can carry one.
+/// The tilt term divides by that limit, and a negative divisor would clamp the
+/// activation to zero — removing the tilt penalty entirely for a scenario that
+/// is already corrupt. The reward reports it instead.
+@Test func denseRewardRejectsATiltNormalizationItCannotDivideBy() throws {
+    let base = try makeShortAttitudeScenario()
+
+    func rewardWithEnvelope(tiltSafeMaxDegrees: Double) throws -> Double {
+        let envelope = try JSONDecoder().decode(
+            SafetyEnvelope.self,
+            from: try #require(
+                """
+                {"omegaSafeMax":20.0,"tiltSafeMaxDegrees":\(tiltSafeMaxDegrees),\
+                "sustainedViolationSeconds":0.2,"groundZ":0.0,\
+                "fallDurationSeconds":0.5,"fallVelocityThreshold":0.05}
+                """.data(using: .utf8)
+            )
+        )
+        let definition = ReferenceQuadrotorScenarioDefinition(
+            config: base.config,
+            kind: base.kind,
+            initialPosition: base.initialPosition,
+            initialAttitude: base.initialAttitude,
+            initialAngularVelocity: base.initialAngularVelocity,
+            safetyEnvelope: envelope,
+            torqueEvents: [],
+            actuatorDegradation: nil,
+            gyroDriftScale: 1.0,
+            swapEvents: [],
+            hfEvents: []
+        )
+        return try ReferenceQuadrotorDenseReward().reward(
+            scenario: definition,
+            log: try makeRewardLog(
+                altitude: definition.initialPosition.z,
+                verticalVelocity: 0,
+                tiltRadians: 0.5
+            ),
+            failure: nil,
+            truncated: false
+        )
+    }
+
+    #expect(throws: ReferenceQuadrotorDenseReward.RewardError.degenerateTiltNormalization(0)) {
+        _ = try rewardWithEnvelope(tiltSafeMaxDegrees: 0)
+    }
+    #expect(throws: ReferenceQuadrotorDenseReward.RewardError.degenerateTiltNormalization(-60)) {
+        _ = try rewardWithEnvelope(tiltSafeMaxDegrees: -60)
+    }
+    // The valid case still returns, so the guard is a rejection and not a
+    // blanket failure.
+    #expect(try rewardWithEnvelope(tiltSafeMaxDegrees: 60) > 0)
 }
 
 @Test func denseRewardChargesFailurePenaltyOnTheFailingStep() throws {

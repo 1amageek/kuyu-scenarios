@@ -33,6 +33,12 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
         /// The penalty weights sum to zero (or worse), so the survival scale is
         /// undefined and no shaping gradient exists.
         case degeneratePenaltyWeights
+        /// The scenario's `tiltSafeMaxDegrees` yields a non-finite or
+        /// non-positive tilt normalization, so the tilt activation has no
+        /// defined scale. Reported rather than clamped: a negative divisor
+        /// would silently drive the activation to zero and remove the tilt
+        /// penalty entirely for a scenario that is already corrupt.
+        case degenerateTiltNormalization(Double)
     }
 
     public struct Config: Sendable, Codable, Equatable {
@@ -96,9 +102,20 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
         // hold 3.67x hover thrust indefinitely at no marginal cost. The bound
         // and the weights are unchanged, so v6 is a strictly monotone
         // re-shaping of v5 in the vertical terms only.
+        //
+        // version 7: the tilt activation is normalized by
+        // `ReferenceQuadrotorErrorNormalization.tiltNormalizationRadians`, the
+        // scenario's own termination limit, instead of a fixed `pi / 2`. Under
+        // v6 a 60-degree envelope left a third of the tilt range past
+        // termination and charged the same marginal penalty per degree at 5
+        // degrees as at 59, so the reward paid nothing extra for the last 30
+        // degrees before the cliff and the measured policy spent its whole tilt
+        // margin. The normalization is scenario-derived and therefore not part
+        // of `configHash`, matching how the altitude tolerance and the
+        // reference vertical velocity already come from the scenario.
         self.descriptor = RewardDescriptor(
             id: "reference-quadrotor-dense",
-            version: "6",
+            version: "7",
             configHash: Self.configHash(config)
         )
     }
@@ -127,7 +144,15 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
     ) throws -> Double {
         if let configError { throw configError }
 
-        let normalizedTilt = clamp(log.safetyTrace.tiltRadians / (.pi / 2.0))
+        // Full tilt penalty at the scenario's termination limit, so the reward
+        // and `ReferenceQuadrotorSafetyCost` agree on where the cliff is.
+        let tiltNormalization = ReferenceQuadrotorErrorNormalization.tiltNormalizationRadians(
+            tiltSafeMaxDegrees: scenario.safetyEnvelope.tiltSafeMaxDegrees
+        )
+        guard tiltNormalization.isFinite, tiltNormalization > 0 else {
+            throw RewardError.degenerateTiltNormalization(scenario.safetyEnvelope.tiltSafeMaxDegrees)
+        }
+        let normalizedTilt = clamp(log.safetyTrace.tiltRadians / tiltNormalization)
         let normalizedOmega = clamp(log.safetyTrace.omegaMagnitude / 20.0)
         let controlMagnitude = meanControlMagnitude(log: log)
         var penalty = (config.tiltPenalty * normalizedTilt)
