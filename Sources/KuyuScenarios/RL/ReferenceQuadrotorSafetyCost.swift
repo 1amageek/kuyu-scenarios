@@ -9,14 +9,34 @@ import KuyuCore
 /// cost is zero while the state stays inside a margin of the scenario's
 /// `SafetyEnvelope` and grows linearly as tilt or angular velocity approach
 /// and exceed the envelope limits. The continuous risk is integrated over the
-/// transition duration, while a hard failure adds a duration-independent
-/// impulse expressed in equivalent cost-seconds.
+/// transition duration.
+///
+/// # Terminal charge
+///
+/// A hard failure ends the episode, so the rest of the scenario is never
+/// flown and never accrues risk. Charging only a fixed impulse for it makes
+/// the episode cost sum non-monotone in safety: crashing early truncates the
+/// integral, so a short crashed episode can cost less than a long episode that
+/// stayed airborne near the envelope. A failure is therefore charged the fixed
+/// impulse *plus* the unflown remainder at `maximumRiskRate`, the largest rate
+/// any state can produce. Since no survivable trajectory can exceed that rate,
+/// failing at time `t` always costs strictly more than any way of surviving
+/// from `t` to the end, and the episode cost sum becomes monotone in safety.
 public struct ReferenceQuadrotorSafetyCost: CostFunction {
     public enum CostError: Error, Equatable {
         case nonFinite
         case invalidDuration(Double)
+        case invalidRemainingDuration(Double)
         case missingMeasurement
         case descriptorMismatch(expected: CostDescriptor, actual: CostDescriptor)
+    }
+
+    /// How the transition ended. `failed` carries the unflown remainder so a
+    /// caller cannot report a failure without stating what horizon it cut
+    /// short.
+    public enum Termination: Sendable, Equatable {
+        case survived
+        case failed(remainingDuration: Double)
     }
 
     public struct Config: Sendable, Codable, Equatable {
@@ -79,6 +99,10 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
             case outOfRange(String)
         }
 
+        /// Cap applied to each normalized hinge term so post-violation states
+        /// stay bounded, and therefore the ceiling of a single weighted term.
+        public static let hingeUpperBound: Double = 2.0
+
         /// Fraction of the envelope limit below which the cost is zero.
         /// Above it the cost rises linearly, reaching 1 at the limit.
         public let marginFraction: Double
@@ -87,9 +111,29 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
         /// Optional task-level hard limits shared with checkpoint acceptance.
         /// Scenario limits remain active; the stricter bound wins.
         public let constraintLimits: ConstraintLimits?
-        /// Added once when the transition reports a hard failure. The value is
+        /// Added once when the transition reports a hard failure, on top of the
+        /// unflown remainder charged at `maximumRiskRate`. The value is
         /// expressed in equivalent cost-seconds and is not scaled by duration.
         public let failureImpulseCost: Double
+
+        /// Smallest normalized input that drives `hinge` to `hingeUpperBound`,
+        /// used when a trace is unusable and must be priced at the maximum
+        /// instead of silently cheap.
+        var hingeSaturationInput: Double {
+            marginFraction + (1.0 - marginFraction) * Self.hingeUpperBound
+        }
+
+        /// Largest risk rate any state can produce, used to price the horizon a
+        /// failure cuts short. `hinge` caps each normalized term at
+        /// `hingeUpperBound`, and the altitude term contributes only when a
+        /// minimum-altitude limit is configured.
+        public var maximumRiskRate: Double {
+            var rate = tiltWeight + omegaWeight
+            if let constraintLimits, constraintLimits.minimumRootAltitude != nil {
+                rate += constraintLimits.altitudeWeight
+            }
+            return rate * Self.hingeUpperBound
+        }
 
         public init(
             marginFraction: Double = 0.8,
@@ -125,9 +169,13 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
 
     public init(config: Config) {
         self.config = config
+        // version 4: a failure is charged the unflown remainder at
+        // `maximumRiskRate` in addition to `failureImpulseCost`, which makes the
+        // episode cost sum monotone in safety. Version 3 charged only the fixed
+        // impulse, so truncating an episode by crashing could lower its cost.
         self.descriptor = CostDescriptor(
             id: "reference-quadrotor-safety-cost",
-            version: "3",
+            version: "4",
             configHash: Self.configHash(config)
         )
     }
@@ -139,7 +187,17 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
         failure: FailureEvent?,
         truncated: Bool
     ) throws -> Double {
-        try cost(
+        let termination: Termination
+        if failure != nil {
+            // The physics clock can pass the nominal scenario duration by a
+            // sub-tick rounding amount on the final step, so the unflown
+            // remainder floors at zero rather than going slightly negative.
+            let remaining = max(0, scenario.config.duration - log.time.time)
+            termination = .failed(remainingDuration: remaining)
+        } else {
+            termination = .survived
+        }
+        return try cost(
             tiltRadians: log.safetyTrace.tiltRadians,
             omegaMagnitude: log.safetyTrace.omegaMagnitude,
             rootAltitude: log.plantState.root.position.z,
@@ -148,7 +206,7 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
             ).targetPosition.z,
             safetyEnvelope: scenario.safetyEnvelope,
             duration: duration,
-            failed: failure != nil
+            termination: termination
         )
     }
 
@@ -162,10 +220,15 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
         targetAltitude: Double? = nil,
         safetyEnvelope: SafetyEnvelope,
         duration: Double,
-        failed: Bool
+        termination: Termination
     ) throws -> Double {
         guard duration.isFinite, duration > 0 else {
             throw CostError.invalidDuration(duration)
+        }
+        if case let .failed(remainingDuration) = termination {
+            guard remainingDuration.isFinite, remainingDuration >= 0 else {
+                throw CostError.invalidRemainingDuration(remainingDuration)
+            }
         }
         let scenarioTiltLimit = safetyEnvelope.tiltSafeMaxDegrees * Double.pi / 180.0
         let tiltLimitRadians = stricterUpperBound(
@@ -196,7 +259,11 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
                 )
             )
         }
-        let value = riskRate * duration + (failed ? config.failureImpulseCost : 0)
+        var value = riskRate * duration
+        if case let .failed(remainingDuration) = termination {
+            value += config.failureImpulseCost
+                + config.maximumRiskRate * remainingDuration
+        }
         guard value.isFinite else { throw CostError.nonFinite }
         return value
     }
@@ -215,17 +282,20 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
     }
 
     /// Linear hinge in the normalized magnitude: 0 below the margin, 1 at the
-    /// envelope limit, capped at 2 so post-violation states stay bounded.
+    /// envelope limit, capped at `Config.hingeUpperBound` so post-violation
+    /// states stay bounded.
     private func hinge(_ normalized: Double) -> Double {
         let span = 1.0 - config.marginFraction
         let raw = (normalized - config.marginFraction) / span
-        return min(max(raw, 0.0), 2.0)
+        return min(max(raw, 0.0), Config.hingeUpperBound)
     }
 
     /// Non-finite traces map to the capped maximum so a diverging plant is
     /// maximally costly instead of silently cheap.
     private func normalizedMagnitude(_ value: Double, limit: Double) -> Double {
-        guard value.isFinite, limit > 0 else { return 2.0 }
+        guard value.isFinite, limit > 0 else {
+            return config.hingeSaturationInput
+        }
         return abs(value) / limit
     }
 
@@ -240,7 +310,7 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
               reference.isFinite,
               limit.isFinite,
               reference > limit else {
-            return 2.0
+            return config.hingeSaturationInput
         }
         return (reference - value) / (reference - limit)
     }
