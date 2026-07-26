@@ -118,8 +118,9 @@ public struct ReferenceQuadrotorSafetyCost: CostFunction {
 
         /// Smallest normalized input that drives `hinge` to `hingeUpperBound`,
         /// used when a trace is unusable and must be priced at the maximum
-        /// instead of silently cheap.
-        var hingeSaturationInput: Double {
+        /// instead of silently cheap. Public so batched mirrors of this cost
+        /// reuse the same saturation point instead of restating the formula.
+        public var hingeSaturationInput: Double {
             marginFraction + (1.0 - marginFraction) * Self.hingeUpperBound
         }
 
