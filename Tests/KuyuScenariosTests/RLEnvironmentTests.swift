@@ -703,8 +703,88 @@ private func sourceContents(root: URL, fileName: String) throws -> String {
     )
 
     #expect(definition.liftEnvelope == nil)
-    #expect(reward.descriptor.version == "4")
+    #expect(reward.descriptor.version == "5")
     #expect(lowReward < targetReward)
+}
+
+@Test func denseRewardStaysWithinSurvivalBudgetSoContinuingBeatsTerminating() throws {
+    let definition = try makeShortAttitudeScenario()
+    let reward = ReferenceQuadrotorDenseReward()
+    let hoverLog = try makeRewardLog(altitude: definition.initialPosition.z, verticalVelocity: 0)
+    // Saturates every normalized penalty term: 90-degree tilt is the tilt
+    // normalization boundary, and the altitude/velocity errors are far past
+    // their references.
+    let worstLog = try makeRewardLog(
+        altitude: definition.initialPosition.z - 100.0,
+        verticalVelocity: -100.0,
+        tiltRadians: .pi / 2.0,
+        omegaMagnitude: 100.0,
+        driveActivation: 1.0
+    )
+
+    let hoverReward = try reward.reward(
+        scenario: definition,
+        log: hoverLog,
+        failure: nil,
+        truncated: false
+    )
+    let worstReward = try reward.reward(
+        scenario: definition,
+        log: worstLog,
+        failure: nil,
+        truncated: false
+    )
+
+    // A terminated episode bootstraps to zero. Every non-failing step must be
+    // worth at least that, or the optimal policy is to terminate immediately.
+    #expect(worstReward >= 0)
+    #expect(hoverReward <= reward.config.survivalReward)
+    #expect(worstReward < hoverReward)
+    #expect(abs(hoverReward - reward.config.survivalReward) < 1e-9)
+    #expect(abs(worstReward) < 1e-9)
+}
+
+@Test func denseRewardChargesFailurePenaltyOnTheFailingStep() throws {
+    let definition = try makeShortAttitudeScenario()
+    let reward = ReferenceQuadrotorDenseReward()
+    let log = try makeRewardLog(altitude: definition.initialPosition.z, verticalVelocity: 0)
+    let failure = FailureEvent(reason: .groundViolation, time: log.time.time)
+
+    let survived = try reward.reward(scenario: definition, log: log, failure: nil, truncated: false)
+    let failed = try reward.reward(scenario: definition, log: log, failure: failure, truncated: false)
+
+    #expect(abs((survived - failed) - reward.config.failurePenalty) < 1e-9)
+    #expect(failed < 0)
+}
+
+@Test func denseRewardRejectsDegeneratePenaltyWeights() throws {
+    let definition = try makeShortAttitudeScenario()
+    let reward = ReferenceQuadrotorDenseReward(
+        config: ReferenceQuadrotorDenseReward.Config(
+            tiltPenalty: 0,
+            omegaPenalty: 0,
+            altitudePenalty: 0,
+            verticalVelocityPenalty: 0,
+            controlPenalty: 0
+        )
+    )
+    let log = try makeRewardLog(altitude: definition.initialPosition.z, verticalVelocity: 0)
+
+    #expect(throws: ReferenceQuadrotorDenseReward.RewardError.degeneratePenaltyWeights) {
+        _ = try reward.reward(scenario: definition, log: log, failure: nil, truncated: false)
+    }
+}
+
+@Test func denseRewardRejectsNegativeWeights() throws {
+    let definition = try makeShortAttitudeScenario()
+    let reward = ReferenceQuadrotorDenseReward(
+        config: ReferenceQuadrotorDenseReward.Config(tiltPenalty: -1.0)
+    )
+    let log = try makeRewardLog(altitude: definition.initialPosition.z, verticalVelocity: 0)
+
+    #expect(throws: ReferenceQuadrotorDenseReward.RewardError.negativeWeight) {
+        _ = try reward.reward(scenario: definition, log: log, failure: nil, truncated: false)
+    }
 }
 
 @Test func altitudeHoldReferenceUsesScenarioAuthority() throws {
@@ -894,7 +974,13 @@ private func loadBundledRobot(_ relativePath: String) throws -> LoadedKuyuRobot 
     return try KuyuModelLoader().loadRobot(path: resourceURL.path)
 }
 
-private func makeRewardLog(altitude: Double, verticalVelocity: Double) throws -> WorldStepLog {
+private func makeRewardLog(
+    altitude: Double,
+    verticalVelocity: Double,
+    tiltRadians: Double = 0,
+    omegaMagnitude: Double = 0,
+    driveActivation: Double = 0
+) throws -> WorldStepLog {
     let root = RigidBodySnapshot(
         id: "root",
         position: Axis3(x: 0, y: 0, z: altitude),
@@ -906,11 +992,11 @@ private func makeRewardLog(altitude: Double, verticalVelocity: Double) throws ->
         time: try WorldTime(stepIndex: 1, time: 0.001),
         events: [],
         sensorSamples: [],
-        driveIntents: [],
+        driveIntents: [try DriveIntent(index: DriveIndex(0), activation: driveActivation)],
         reflexCorrections: [],
         actuatorValues: [],
         actuatorTelemetry: ActuatorTelemetrySnapshot(channels: []),
-        safetyTrace: try SafetyTrace(omegaMagnitude: 0, tiltRadians: 0),
+        safetyTrace: try SafetyTrace(omegaMagnitude: omegaMagnitude, tiltRadians: tiltRadians),
         plantState: PlantStateSnapshot(root: root),
         disturbances: DisturbanceSnapshot(
             forceWorld: Axis3(x: 0, y: 0, z: 0),

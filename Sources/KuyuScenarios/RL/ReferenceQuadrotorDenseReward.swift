@@ -1,13 +1,42 @@
 import Foundation
 import KuyuCore
 
+/// Dense per-physics-step reward for the reference quadrotor tasks.
+///
+/// # Survival-normalized contract
+///
+/// Every shaping term is a penalty normalized to `[0, 1]`, so their weighted
+/// sum is bounded by `Config.penaltyWeightSum`. The step reward is the survival
+/// budget scaled by how much of that penalty budget the state left unspent:
+///
+/// ```text
+/// reward = survivalReward * (1 - penalty / penaltyWeightSum)   in [0, survivalReward]
+/// reward -= failurePenalty                                     on the failing step
+/// ```
+///
+/// This is a positive affine transform of the previous
+/// `aliveReward - penalty` form, so it preserves the ordering and the relative
+/// magnitude of the shaping gradient. What it changes is the sign of the
+/// continuation value. A terminated episode bootstraps to zero, so with an
+/// all-negative step reward the absorbing terminal state was the highest-value
+/// reachable state and the discounted advantage of crashing was strongly
+/// positive; a one-time `failurePenalty` cannot offset a whole discounted
+/// remaining life. With a non-negative step reward, continuing is worth at
+/// least as much as terminating for every reachable state, and
+/// `failurePenalty` only widens that margin.
 public struct ReferenceQuadrotorDenseReward: RewardFunction {
     public enum RewardError: Error, Equatable {
         case nonFinite
+        /// A weight is negative, so the penalty sum can leave `[0, penaltyWeightSum]`
+        /// and the reward can leave `[0, survivalReward]`.
+        case negativeWeight
+        /// The penalty weights sum to zero (or worse), so the survival scale is
+        /// undefined and no shaping gradient exists.
+        case degeneratePenaltyWeights
     }
 
     public struct Config: Sendable, Codable, Equatable {
-        public let aliveReward: Double
+        public let survivalReward: Double
         public let tiltPenalty: Double
         public let omegaPenalty: Double
         public let altitudePenalty: Double
@@ -16,7 +45,7 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
         public let failurePenalty: Double
 
         public init(
-            aliveReward: Double = 0.02,
+            survivalReward: Double = 1.0,
             tiltPenalty: Double = 1.0,
             omegaPenalty: Double = 0.25,
             altitudePenalty: Double = 0.4,
@@ -24,7 +53,7 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
             controlPenalty: Double = 0.02,
             failurePenalty: Double = 10.0
         ) {
-            self.aliveReward = aliveReward
+            self.survivalReward = survivalReward
             self.tiltPenalty = tiltPenalty
             self.omegaPenalty = omegaPenalty
             self.altitudePenalty = altitudePenalty
@@ -32,21 +61,53 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
             self.controlPenalty = controlPenalty
             self.failurePenalty = failurePenalty
         }
+
+        /// Normalization denominator for the shaping terms. Equal to the maximum
+        /// attainable penalty because every normalized activation is in `[0, 1]`.
+        public var penaltyWeightSum: Double {
+            tiltPenalty + omegaPenalty + altitudePenalty + verticalVelocityPenalty + controlPenalty
+        }
     }
 
     public let config: Config
     public let descriptor: RewardDescriptor
+    /// Validation deferred from `init` to `reward(_:)`: the initializer is used
+    /// as a default argument and as a stored-property initializer, neither of
+    /// which may throw. The failure is reported as a typed error on first use
+    /// rather than silently clamped.
+    private let configError: RewardError?
+    private let penaltyWeightSum: Double
 
     public init(config: Config = Config()) {
         self.config = config
-        // version 4: attitude vertical-velocity reward scale now matches the strict
-        // A1 sustained-fall velocity envelope. The configHash is over the Config
-        // weights, so the version records this semantic change.
+        self.penaltyWeightSum = config.penaltyWeightSum
+        self.configError = Self.validate(config)
+        // version 5: survival-normalized reward. The shaped term is now
+        // `survivalReward * (1 - penalty / penaltyWeightSum)` in [0, survivalReward]
+        // instead of `aliveReward - penalty` in [-penaltyWeightSum, aliveReward],
+        // which removes the early-termination incentive that an all-negative step
+        // reward creates under bootstrap-to-zero termination.
         self.descriptor = RewardDescriptor(
             id: "reference-quadrotor-dense",
-            version: "4",
+            version: "5",
             configHash: Self.configHash(config)
         )
+    }
+
+    private static func validate(_ config: Config) -> RewardError? {
+        let weights = [
+            config.survivalReward,
+            config.tiltPenalty,
+            config.omegaPenalty,
+            config.altitudePenalty,
+            config.verticalVelocityPenalty,
+            config.controlPenalty,
+            config.failurePenalty,
+        ]
+        guard weights.allSatisfy({ $0.isFinite }) else { return .nonFinite }
+        guard weights.allSatisfy({ $0 >= 0 }) else { return .negativeWeight }
+        guard config.penaltyWeightSum > 0 else { return .degeneratePenaltyWeights }
+        return nil
     }
 
     public func reward(
@@ -55,13 +116,14 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
         failure: FailureEvent?,
         truncated: Bool
     ) throws -> Double {
+        if let configError { throw configError }
+
         let normalizedTilt = clamp(log.safetyTrace.tiltRadians / (.pi / 2.0))
         let normalizedOmega = clamp(log.safetyTrace.omegaMagnitude / 20.0)
         let controlMagnitude = meanControlMagnitude(log: log)
-        var value = config.aliveReward
-            - (config.tiltPenalty * normalizedTilt)
-            - (config.omegaPenalty * normalizedOmega)
-            - (config.controlPenalty * controlMagnitude)
+        var penalty = (config.tiltPenalty * normalizedTilt)
+            + (config.omegaPenalty * normalizedOmega)
+            + (config.controlPenalty * controlMagnitude)
 
         let altitudeReference = try ReferenceQuadrotorAltitudeHoldReference(definition: scenario)
         // Dense vertical-velocity penalty for all tasks. Scenario semantics own
@@ -69,7 +131,7 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
         let normalizedVerticalVelocity = clamp(
             abs(log.plantState.root.velocity.z) / max(altitudeReference.referenceVerticalVelocity, 1e-6)
         )
-        value -= config.verticalVelocityPenalty * normalizedVerticalVelocity
+        penalty += config.verticalVelocityPenalty * normalizedVerticalVelocity
 
         // Dense altitude-position penalty for all tasks. Lift/single-lift use their
         // explicit lift envelope; attitude has no lift envelope, so the scenario's
@@ -78,7 +140,9 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
         // descent with little immediate reward pressure to climb back.
         let altitudeError = abs(log.plantState.root.position.z - altitudeReference.targetPosition.z)
         let normalizedAltitudeError = clamp(altitudeError / max(altitudeReference.tolerance, 1e-6))
-        value -= config.altitudePenalty * normalizedAltitudeError
+        penalty += config.altitudePenalty * normalizedAltitudeError
+
+        var value = config.survivalReward * (1.0 - (penalty / penaltyWeightSum))
 
         if failure != nil {
             value -= config.failurePenalty
@@ -111,7 +175,7 @@ public struct ReferenceQuadrotorDenseReward: RewardFunction {
 
     private static func configHash(_ config: Config) -> String {
         let components = [
-            config.aliveReward,
+            config.survivalReward,
             config.tiltPenalty,
             config.omegaPenalty,
             config.altitudePenalty,
