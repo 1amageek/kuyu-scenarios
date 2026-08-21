@@ -26,7 +26,7 @@ extension ReferenceQuadrotorRLEnvironment {
             swapEvents: definition.swapEvents,
             hfEvents: definition.hfEvents
         )
-        let plant = ReferenceQuadrotorPlantEngine(
+        let plant = try ReferenceQuadrotorPlantEngine(
             parameters: parameters,
             mixer: mixer,
             store: store,

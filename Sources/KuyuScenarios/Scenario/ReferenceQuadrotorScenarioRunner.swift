@@ -75,7 +75,7 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
                 hfEvents: definition.hfEvents,
                 store: store
             )
-            let plant = SinglePropPlantEngine(
+            let plant = try SinglePropPlantEngine(
                 parameters: parameters,
                 store: store,
                 timeStep: timeStep,
@@ -161,7 +161,7 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
             hfEvents: definition.hfEvents,
             store: store
         )
-        let plant = ReferenceQuadrotorPlantEngine(
+        let plant = try ReferenceQuadrotorPlantEngine(
             parameters: parameters,
             mixer: mixer,
             store: store,

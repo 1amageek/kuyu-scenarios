@@ -23,7 +23,7 @@ extension ReferenceQuadrotorRLEnvironment {
             swapEvents: definition.swapEvents,
             hfEvents: definition.hfEvents
         )
-        let plant = SinglePropPlantEngine(
+        let plant = try SinglePropPlantEngine(
             parameters: parameters,
             store: store,
             timeStep: timeStep,
