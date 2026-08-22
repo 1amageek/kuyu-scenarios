@@ -31,7 +31,8 @@ extension ReferenceQuadrotorRLEnvironment {
             mixer: mixer,
             store: store,
             timeStep: timeStep,
-            environment: worldEnvironment
+            environment: worldEnvironment,
+            canonicalExecutor: canonicalExecutor
         )
         let sensor = try quadSensor(definition: definition, store: store, scaledNoise: scaledNoise)
         return try WorldSimulator(

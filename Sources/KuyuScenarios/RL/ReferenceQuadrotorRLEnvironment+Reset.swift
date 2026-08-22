@@ -8,6 +8,16 @@ public extension ReferenceQuadrotorRLEnvironment {
     ) throws -> EnvironmentObservation {
         let plan = try validatedResetPlan(seed: seed, scenario: scenario)
         let simulationConfig = plan.simulationConfig
+        let executionContract = try ReferenceQuadrotorEnvironmentExecutionContract(
+            canonicalExecutorVersion: canonicalExecutor.executorVersion,
+            simulation: simulationConfig,
+            actionRealization: actionRealization,
+            parameters: parameters,
+            robotManifestID: robotManifestID,
+            motorNerveRateLimitPerSecond: motorNerveRateLimitPerSecond,
+            motorNerveSmoothingTimeConstant: motorNerveSmoothingTimeConstant
+        )
+        let executionConfigHash = try ConfigHash.hash(executionContract)
         switch scenario.kind {
         case .singleLiftHover:
             simulator = .single(try makeSingleSimulator(definition: scenario, config: simulationConfig))
@@ -21,16 +31,8 @@ public extension ReferenceQuadrotorRLEnvironment {
             timeStep: scenario.config.timeStep.delta
         )
         definition = scenario
-        let executionContract = ReferenceQuadrotorEnvironmentExecutionContract(
-            simulation: simulationConfig,
-            actionRealization: actionRealization,
-            parameters: parameters,
-            robotManifestID: robotManifestID,
-            motorNerveRateLimitPerSecond: motorNerveRateLimitPerSecond,
-            motorNerveSmoothingTimeConstant: motorNerveSmoothingTimeConstant
-        )
         activeExecutionContract = executionContract
-        configHash = try ConfigHash.hash(executionContract)
+        configHash = executionConfigHash
         maxSteps = plan.controlStepCount
         physicsStepsRemaining = plan.physicsStepCount
         stepCount = 0

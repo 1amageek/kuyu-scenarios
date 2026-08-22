@@ -43,7 +43,8 @@ extension ReferenceQuadrotorRLEnvironment {
             accelNoiseStdDev: scaledNoise.accelNoiseStdDev,
             accelBias: scaledNoise.accelBias,
             accelRandomWalkSigma: scaledNoise.accelRandomWalkSigma,
-            delaySteps: scaledNoise.delaySteps
+            delaySteps: scaledNoise.delaySteps,
+            canonicalExecutor: canonicalExecutor
         )
     }
 

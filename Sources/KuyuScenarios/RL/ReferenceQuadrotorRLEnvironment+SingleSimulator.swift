@@ -27,7 +27,8 @@ extension ReferenceQuadrotorRLEnvironment {
             parameters: parameters,
             store: store,
             timeStep: timeStep,
-            environment: worldEnvironment
+            environment: worldEnvironment,
+            canonicalExecutor: canonicalExecutor
         )
         return try WorldSimulator(
             config: simulationConfig,

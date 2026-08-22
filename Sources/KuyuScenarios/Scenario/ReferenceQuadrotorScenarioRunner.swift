@@ -15,6 +15,7 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
     public var noise: IMU6NoiseConfig
     public var environment: WorldEnvironment
     public var hoverThrustScale: Double
+    public let canonicalExecutor: any ReferenceQuadrotorCanonicalExecuting
 
     public init(
         parameters: ReferenceQuadrotorParameters = .baseline,
@@ -23,7 +24,9 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
         determinism: DeterminismConfig,
         noise: IMU6NoiseConfig = .zero,
         environment: WorldEnvironment = .standard,
-        hoverThrustScale: Double = 1.0
+        hoverThrustScale: Double = 1.0,
+        canonicalExecutor: any ReferenceQuadrotorCanonicalExecuting =
+            ReferenceQuadrotorScalarDynamicsExecutor()
     ) {
         self.parameters = parameters
         self.mixer = mixer ?? ReferenceQuadrotorMixer(armLength: parameters.armLength, yawCoefficient: parameters.yawCoefficient)
@@ -32,6 +35,7 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
         self.noise = noise
         self.environment = environment
         self.hoverThrustScale = hoverThrustScale
+        self.canonicalExecutor = canonicalExecutor
     }
 
     nonisolated(nonsending) public func runScenario(
@@ -79,7 +83,8 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
                 parameters: parameters,
                 store: store,
                 timeStep: timeStep,
-                environment: environment
+                environment: environment,
+                canonicalExecutor: canonicalExecutor
             )
             let baseSensor = try SinglePropIMU6SensorField(
                 parameters: parameters,
@@ -166,7 +171,8 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
             mixer: mixer,
             store: store,
             timeStep: timeStep,
-            environment: environment
+            environment: environment,
+            canonicalExecutor: canonicalExecutor
         )
 
         let baseSensor = try IMU6SensorField(
@@ -182,7 +188,8 @@ public struct ReferenceQuadrotorScenarioRunner<Cut: CutInterface, Nerve: MotorNe
             accelNoiseStdDev: scaledNoise.accelNoiseStdDev,
             accelBias: scaledNoise.accelBias,
             accelRandomWalkSigma: scaledNoise.accelRandomWalkSigma,
-            delaySteps: scaledNoise.delaySteps
+            delaySteps: scaledNoise.delaySteps,
+            canonicalExecutor: canonicalExecutor
         )
         let sensor = SwappableSensorField(
             base: baseSensor,
