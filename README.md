@@ -18,7 +18,7 @@ their target state, safety rules, reward meaning, or pass/fail semantics.
 | Safety, failure, truncation, and task-quality semantics | PPO/BC/evolution algorithms |
 | Reward functions and `RewardDescriptor` provenance | Checkpoint selection or publication |
 | Scenario-derived references such as altitude-hold target/tolerance | Dataset persistence formats beyond scenario logs |
-| Simulation logs and replay validation | MLX model architecture or optimizer details |
+| Simulation logs and replay validation | Model architecture or optimizer details |
 
 ### Reliability Contract
 
@@ -81,7 +81,7 @@ in `RELIABILITY_EVIDENCE.md`.
 - **`PlantScenarioRunner`** — Executes a single scenario with a given controller and produces logs.
 - **`PlantScenarioSuiteRunner`** — Runs a full suite of scenarios and aggregates results.
 - **`ReferenceQuadrotorRLEnvironment`** — Scenario-owned RL reset/step environment for reference attitude, lift, and single-lift tasks. One `step` applies the current policy action before physics, holds it for one Cut/MotorNerve control period, aggregates reward, and checks failure after every enclosed physics tick. State, reset, step, observation, world-model validation, simulator construction, stress validation, and support helpers live in focused files so these semantics remain auditable.
-- **`ReferenceQuadrotorEnvironmentExecutionContract`** — Fail-closed schema-v2 identity for an RL rollout. It binds the canonical executor version in addition to simulation, action realization, morphology parameters, and MotorNerve settings, so Swift scalar, Mojo numeric variants, and MLX tensor execution cannot share an ambiguous `configHash`.
+- **`ReferenceQuadrotorEnvironmentExecutionContract`** — Fail-closed schema-v2 identity for an RL rollout. It binds the canonical executor version in addition to simulation, action realization, morphology parameters, and MotorNerve settings, so distinct Swift and Mojo numeric executors cannot share an ambiguous `configHash`.
 - **`ReferenceQuadrotorScenarioRunner`** — Accepts one canonical executor and propagates it to every canonical Plant path and the full-quadrotor `IMU6SensorField` for the complete run. The constrained single-prop sensor retains its dedicated analytical field. Backend failures remain run failures; the runner does not select a scalar fallback.
 - **`ReferenceQuadrotorBaselineReplayRuntime`** — Executes baseline reference-quadrotor attitude/lift/single-lift suites with replay verification enabled.
 - **`ScenarioRunner`** — Sequential execution of independent scenarios.

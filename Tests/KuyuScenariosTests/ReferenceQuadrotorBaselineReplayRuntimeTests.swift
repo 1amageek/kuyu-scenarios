@@ -56,14 +56,14 @@ import KuyuPhysics
 @Test func baselineReplayRuntimeRejectsNonBaselineController() async throws {
     do {
         _ = try await ReferenceQuadrotorBaselineReplayRuntime().run(
-            request: try baselineRequest(taskMode: .lift, controller: .manasMLX),
+            request: try baselineRequest(taskMode: .lift, controller: .learnedPolicy),
             parameters: .baseline,
             schedule: try SimulationSchedule.baseline(cutPeriodSteps: 1),
             definitions: []
         )
         Issue.record("Expected non-baseline controller to be rejected.")
     } catch ReferenceQuadrotorBaselineReplayRuntimeError.unsupportedController(let controller) {
-        #expect(controller == "ManasMLX")
+        #expect(controller == "Learned Policy")
     }
 }
 

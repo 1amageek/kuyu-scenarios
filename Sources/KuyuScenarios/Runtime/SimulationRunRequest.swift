@@ -4,12 +4,12 @@ import KuyuPhysics
 public enum ControllerSelection: String, CaseIterable, Identifiable, Sendable {
     case teacherActiveAltitudeHold = "Teacher Active Altitude Hold"
     case sensorBaseline = "Sensor Baseline"
-    case manasMLX = "ManasMLX"
+    case learnedPolicy = "Learned Policy"
 
     public static let allCases: [ControllerSelection] = [
         .teacherActiveAltitudeHold,
         .sensorBaseline,
-        .manasMLX,
+        .learnedPolicy,
     ]
 
     public var id: String { rawValue }
@@ -18,7 +18,7 @@ public enum ControllerSelection: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .teacherActiveAltitudeHold, .sensorBaseline:
             return true
-        case .manasMLX:
+        case .learnedPolicy:
             return false
         }
     }
@@ -29,7 +29,7 @@ public enum ControllerSelection: String, CaseIterable, Identifiable, Sendable {
             return .teacher
         case .sensorBaseline:
             return .sensor
-        case .manasMLX:
+        case .learnedPolicy:
             return nil
         }
     }
